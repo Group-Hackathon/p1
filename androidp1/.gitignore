@@ -1,0 +1,19 @@
+# Gradle
+.gradle/
+build/
+local.properties
+
+# Android Studio
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# APK / AAB (build locally or download from GitHub Releases)
+*.apk
+*.aab
+
+# Secrets
+.env
+*.key

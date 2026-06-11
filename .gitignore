@@ -1,0 +1,33 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+credentials.json
+service-account*.json
+**/secrets/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Android build artifacts
+androidp1/.gradle/
+androidp1/**/build/
+androidp1/local.properties
+androidp1/.idea/
+androidp1/captures/
+*.apk
+*.aab
+
+# Go backend local artifacts
+global-app-backend/server
+global-app-backend/.env
+
+# Logs
+*.log

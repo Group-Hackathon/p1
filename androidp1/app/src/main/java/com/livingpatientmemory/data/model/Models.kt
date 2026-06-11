@@ -1,0 +1,64 @@
+package com.livingpatientmemory.data.model
+
+data class AuthRequest(
+    val email: String,
+    val password: String
+)
+
+data class AuthResponse(
+    val token: String,
+    val user: User
+)
+
+data class RecommendRequest(
+    val symptoms: String
+)
+
+data class User(
+    val id: String,
+    val email: String,
+    val created_at: String
+)
+
+data class ProfileResponse(
+    val id: String,
+    val first_name: String,
+    val last_name: String,
+    val relation: String,
+    val created_at: String
+)
+
+data class ProfileRequest(
+    val first_name: String,
+    val last_name: String,
+    val relation: String
+)
+
+data class AgentResponse(
+    val id: String,
+    val name: String,
+    val version: String,
+    val category: String,
+    val description: String,
+    val price_cents: Int,
+    val duration_days_min: Int,
+    val duration_days_max: Int,
+    val gemini_model: String
+)
+
+data class SubscriptionRequest(
+    val profile_id: String,
+    val agent_id: String,
+    val private_backend_url: String? = null,
+    val parameters: Map<String, Any>? = null
+)
+
+data class SubscriptionResponse(
+    val id: String,
+    val profile_id: String,
+    val agent_id: String,
+    val status: String,
+    val private_backend_url: String,
+    val starts_at: String,
+    val expires_at: String
+)
