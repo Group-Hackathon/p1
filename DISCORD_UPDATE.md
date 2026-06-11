@@ -1,6 +1,4 @@
-# Team Update: Project Setup & Dev Launch (English Version)
-
-Hey team! 
+team
 
 The workspace for **Project 1 (Living Patient Memory)** is fully initialized for dev. Here is the current state and how you can jump in:
 
@@ -27,4 +25,4 @@ The workspace for **Project 1 (Living Patient Memory)** is fully initialized for
 * **Experiment & Custom Pipelines**: If you want to try different setups, custom prompts, or distinct API pipelines, please **fork the main repo inside the Group-Hackathon organization** using your name (e.g., `p1-your-name`).
 * **Credentials Security**: Use **GitHub Secrets** or local `.env` files to protect your GCP/Gemini keys. Never commit api keys or raw credentials to the repository.
 
-Let's build! 💻🔥
+Let's build -_-
