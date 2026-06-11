@@ -62,3 +62,6 @@ This is also our business model: the application is free, specialized analysis a
 ## Status
 
 Hackathon project for XPRIZE Gemini, category Professional Services Access. Goal: a real business operated by AI agents, with real customers and real revenue, by August 17th.
+
+---
+*Co-authored by [Garletz](https://github.com/Garletz) & Antigravity Agent*
