@@ -118,6 +118,20 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 			'gemini-3.5-flash',
 			'You are observing a skin condition (rash, eczema, or allergy). Estimate the affected surface area from daily photos, track redness intensity, and correlate with reported itchiness and potential environmental triggers. Describe and quantify only.'
 		) ON CONFLICT (id) DO NOTHING`,
+
+		// Seed the dynamic-plan agent
+		`INSERT INTO agent_catalog (id, name, version, category, description, price_cents, duration_days_min, duration_days_max, duration_days_default, gemini_model, system_prompt)
+		VALUES (
+			'dynamic-plan',
+			'Personalized Protocol',
+			'1.0.0',
+			'dynamic',
+			'A dynamically generated tracking protocol tailored by Gemini based on patient symptoms and rules.',
+			0,
+			1, 30, 14,
+			'gemini-3.5-flash',
+			'You are an AI generating personalized tracking rules.'
+		) ON CONFLICT (id) DO NOTHING`,
 	}
 
 	for i, m := range migrations {

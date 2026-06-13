@@ -8,9 +8,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DateRange
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -50,6 +52,7 @@ fun DashboardScreen(
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showComingSoon by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(refreshKey) {
         isLoading = true
@@ -148,7 +151,17 @@ fun DashboardScreen(
                     items(followUps, key = { it.id }) { followUp ->
                         FollowUpCard(
                             followUp = followUp,
-                            onClick = { onOpenJourney(followUp) }
+                            onClick = { onOpenJourney(followUp) },
+                            onDelete = {
+                                scope.launch {
+                                    try {
+                                        ApiClient.apiService.deleteSubscription(followUp.id)
+                                        followUps = followUps.filter { it.id != followUp.id }
+                                    } catch (e: Exception) {
+                                        errorMessage = "Failed to delete subscription"
+                                    }
+                                }
+                            }
                         )
                     }
                 }
@@ -241,7 +254,8 @@ private fun TodayCard(count: Int) {
 @Composable
 private fun FollowUpCard(
     followUp: FollowUpUi,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onDelete: () -> Unit
 ) {
     LpmCard(onClick = onClick) {
         Column(modifier = Modifier.padding(20.dp)) {
@@ -268,11 +282,21 @@ private fun FollowUpCard(
                         color = Gray600
                     )
                 }
-                DayBadge(
-                    current = followUp.totalDays - followUp.daysRemaining + 1,
-                    total = followUp.totalDays,
-                    isActive = followUp.isActive
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            Icons.Outlined.Delete,
+                            contentDescription = "Delete",
+                            tint = Gray400
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    DayBadge(
+                        current = followUp.totalDays - followUp.daysRemaining + 1,
+                        total = followUp.totalDays,
+                        isActive = followUp.isActive
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))

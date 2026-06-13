@@ -12,8 +12,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import com.livingpatientmemory.ui.components.LpmCard
 import com.livingpatientmemory.ui.theme.*
 
@@ -23,11 +27,12 @@ fun ProfileScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Fake local state for toggles
     var watchConnected by remember { mutableStateOf(false) }
     var thermometerConnected by remember { mutableStateOf(true) }
     var bpConnected by remember { mutableStateOf(false) }
     var scaleConnected by remember { mutableStateOf(false) }
+    var userName by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
 
     Scaffold(
         containerColor = White,
@@ -56,22 +61,26 @@ fun ProfileScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "A",
+                            text = if (userName.isNotBlank()) userName.take(1).uppercase() else "?",
                             color = White,
                             fontSize = 32.sp,
                             fontWeight = FontWeight.ExtraBold
                         )
                     }
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Alex",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "alex@example.com",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Gray600
+                    OutlinedTextField(
+                        value = userName,
+                        onValueChange = { userName = it },
+                        placeholder = { Text("Enter your full name", color = Gray400) },
+                        modifier = Modifier.fillMaxWidth(0.8f),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Black,
+                            unfocusedBorderColor = Gray200,
+                            cursorColor = Black
+                        )
                     )
                 }
             }
@@ -79,28 +88,24 @@ fun ProfileScreen(
             item {
                 SectionTitle("CONNECTED DEVICES")
                 DeviceRow(
-                    emoji = "⌚",
                     name = "Smartwatch",
                     desc = "Steps, heart rate, sleep",
                     checked = watchConnected,
                     onCheckedChange = { watchConnected = it }
                 )
                 DeviceRow(
-                    emoji = "🌡️",
                     name = "Digital thermometer",
                     desc = "Manual temperature entries",
                     checked = thermometerConnected,
                     onCheckedChange = { thermometerConnected = it }
                 )
                 DeviceRow(
-                    emoji = "💓",
                     name = "Blood pressure monitor",
                     desc = "Bluetooth BP device",
                     checked = bpConnected,
                     onCheckedChange = { bpConnected = it }
                 )
                 DeviceRow(
-                    emoji = "⚖️",
                     name = "Connected scale",
                     desc = "Weight tracking",
                     checked = scaleConnected,
@@ -110,15 +115,15 @@ fun ProfileScreen(
 
             item {
                 SectionTitle("PREFERENCES")
-                MenuRow(emoji = "🌡️", label = "Temperature unit", value = "°C")
-                MenuRow(emoji = "🔔", label = "Reminder times", value = "9am, 7pm")
+                MenuRow(label = "Temperature unit", value = "°C")
+                MenuRow(label = "Reminder times", value = "9am, 7pm")
             }
 
             item {
                 SectionTitle("ACCOUNT")
-                MenuRow(emoji = "✏️", label = "Edit profile")
-                MenuRow(emoji = "📦", label = "Export my data")
-                MenuRow(emoji = "🚪", label = "Sign out", isDestructive = true)
+                MenuRow(label = "Export my data")
+                MenuRow(label = "Sign out", isDestructive = false)
+                MenuRow(label = "Delete account and all data", isDestructive = true)
             }
         }
     }
@@ -138,7 +143,6 @@ private fun SectionTitle(title: String) {
 
 @Composable
 private fun DeviceRow(
-    emoji: String,
     name: String,
     desc: String,
     checked: Boolean,
@@ -151,8 +155,6 @@ private fun DeviceRow(
             .padding(horizontal = 24.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = emoji, fontSize = 24.sp)
-        Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(text = name, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
             Text(text = desc, color = Gray500, fontSize = 13.sp)
@@ -173,7 +175,6 @@ private fun DeviceRow(
 
 @Composable
 private fun MenuRow(
-    emoji: String,
     label: String,
     value: String? = null,
     isDestructive: Boolean = false
@@ -185,8 +186,6 @@ private fun MenuRow(
             .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = emoji, fontSize = 20.sp)
-        Spacer(modifier = Modifier.width(16.dp))
         Text(
             text = label,
             fontWeight = FontWeight.Medium,

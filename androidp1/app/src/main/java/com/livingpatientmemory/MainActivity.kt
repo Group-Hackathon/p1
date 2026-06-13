@@ -86,7 +86,11 @@ private fun AppRoot() {
         AppScreen.Splash -> SplashScreen()
 
         AppScreen.Welcome -> WelcomeScreen(
-            onFinish = {
+            onStartTracking = {
+                hasSeenWelcome = true
+                screen = AppScreen.NewFollowUp
+            },
+            onGoToHome = {
                 hasSeenWelcome = true
                 screen = AppScreen.Home
             }

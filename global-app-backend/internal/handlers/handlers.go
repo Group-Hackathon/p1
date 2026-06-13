@@ -417,3 +417,23 @@ func (h *Handler) ListSubscriptions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(subs)
 }
+
+// DeleteSubscription cancels a subscription.
+func (h *Handler) DeleteSubscription(w http.ResponseWriter, r *http.Request) {
+	subID := chi.URLParam(r, "id")
+	userID := r.Context().Value(auth.UserIDKey).(string)
+
+	res, err := h.db.Exec(r.Context(),
+		`DELETE FROM subscriptions WHERE id = $1 AND profile_id IN (SELECT id FROM profiles WHERE user_id = $2)`,
+		subID, userID,
+	)
+	if err != nil {
+		http.Error(w, `{"error":"failed to delete"}`, http.StatusInternalServerError)
+		return
+	}
+	if res.RowsAffected() == 0 {
+		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

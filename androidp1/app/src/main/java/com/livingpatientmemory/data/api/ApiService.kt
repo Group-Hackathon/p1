@@ -4,6 +4,8 @@ import com.livingpatientmemory.data.model.*
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.DELETE
+import retrofit2.http.Path
 
 interface ApiService {
     @POST("api/v1/auth/register")
@@ -29,4 +31,7 @@ interface ApiService {
 
     @POST("api/v1/subscriptions")
     suspend fun createSubscription(@Body request: SubscriptionRequest): SubscriptionResponse
+
+    @DELETE("api/v1/subscriptions/{id}")
+    suspend fun deleteSubscription(@Path("id") id: String)
 }

@@ -23,7 +23,8 @@ import com.livingpatientmemory.ui.theme.White
 
 @Composable
 fun WelcomeScreen(
-    onFinish: () -> Unit,
+    onStartTracking: () -> Unit,
+    onGoToHome: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var currentSlide by remember { mutableIntStateOf(0) }
@@ -34,12 +35,8 @@ fun WelcomeScreen(
             "Track symptoms, vitals, and photos daily. Your doctor gets a complete picture, ready at appointment time."
         ),
         Pair(
-            "You define the rules",
-            "Choose what to track — temperature, pain, photos, connected devices. You're in full control of your own tracking plan."
-        ),
-        Pair(
-            "Evidence-based tracking",
-            "We prepare the best tracking schedule based on thousands of medical records, optimized for your next appointment."
+            "Evidence-based tracking rules",
+            "Choose what to track (vitals, photos). We prepare the best personalized protocol based on thousands of medical records."
         )
     )
 
@@ -112,30 +109,36 @@ fun WelcomeScreen(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                LpmPrimaryButton(
-                    text = if (currentSlide == slides.size - 1) "Get started" else "Next",
-                    onClick = {
-                        if (currentSlide < slides.size - 1) {
-                            currentSlide++
-                        } else {
-                            onFinish()
-                        }
-                    }
-                )
-                
                 if (currentSlide < slides.size - 1) {
+                    LpmPrimaryButton(
+                        text = "Next",
+                        onClick = { currentSlide++ }
+                    )
                     TextButton(
-                        onClick = onFinish,
+                        onClick = onGoToHome,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            "Skip — explore the app",
+                            "Skip — go to dashboard",
                             color = Gray500,
                             fontWeight = FontWeight.Medium
                         )
                     }
                 } else {
-                    Spacer(modifier = Modifier.height(48.dp)) // Maintain height when skip is gone
+                    LpmPrimaryButton(
+                        text = "Start a new tracking",
+                        onClick = onStartTracking
+                    )
+                    TextButton(
+                        onClick = onGoToHome,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            "Go to Dashboard",
+                            color = Gray500,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
             }
         }
