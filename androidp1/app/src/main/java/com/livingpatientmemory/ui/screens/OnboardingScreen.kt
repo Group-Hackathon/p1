@@ -268,14 +268,14 @@ private fun RulesStep(
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         LpmSectionTitle("Your tracking rules")
         Spacer(modifier = Modifier.height(8.dp))
-        LpmBodyText("Choose what you want to monitor. The AI will adapt your plan accordingly.")
+        LpmBodyText("Choose the health metrics you want to monitor. We will prepare the optimal tracking protocol based on thousands of medical records.")
         Spacer(modifier = Modifier.height(24.dp))
 
-        RuleToggle("🌡️", "Temperature", "Manual entries", ruleTemperature, onRuleTemperatureChange)
-        RuleToggle("🤒", "Pain tracking", "Daily pain level", rulePain, onRulePainChange)
-        RuleToggle("📸", "Daily photos", "Guided photo capture", rulePhotos, onRulePhotosChange)
-        RuleToggle("⌚", "Smartwatch data", "Heart rate, steps", ruleSmartwatch, onRuleSmartwatchChange)
-        RuleToggle("💓", "Blood pressure", "Manual or connected", ruleBp, onRuleBpChange)
+        RuleToggle("Temperature", "Manual entries", ruleTemperature, onRuleTemperatureChange)
+        RuleToggle("Pain tracking", "Daily pain level", rulePain, onRulePainChange)
+        RuleToggle("Daily photos", "Guided photo capture", rulePhotos, onRulePhotosChange)
+        RuleToggle("Smartwatch data", "Heart rate, steps", ruleSmartwatch, onRuleSmartwatchChange)
+        RuleToggle("Blood pressure", "Manual or connected", ruleBp, onRuleBpChange)
 
         errorMessage?.let {
             Spacer(modifier = Modifier.height(12.dp))
@@ -284,7 +284,7 @@ private fun RulesStep(
 
         Spacer(modifier = Modifier.height(32.dp))
         LpmPrimaryButton(
-            text = "Generate my plan",
+            text = "Prepare my protocol",
             onClick = onGeneratePlan,
             loading = isLoading
         )
@@ -294,7 +294,7 @@ private fun RulesStep(
 
 @Composable
 private fun RuleToggle(
-    emoji: String, title: String, subtitle: String,
+    title: String, subtitle: String,
     checked: Boolean, onCheckedChange: (Boolean) -> Unit
 ) {
     LpmCard(modifier = Modifier.padding(bottom = 12.dp)) {
@@ -302,8 +302,6 @@ private fun RuleToggle(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = emoji, fontSize = 24.sp)
-            Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = title, fontWeight = FontWeight.Bold, color = Black)
                 Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = Gray600)
@@ -331,9 +329,9 @@ private fun ConfirmStep(
     onConfirm: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        LpmSectionTitle("Your AI Plan")
+        LpmSectionTitle("Your Tracking Protocol")
         Spacer(modifier = Modifier.height(8.dp))
-        LpmBodyText("Gemini has built this routine based on your rules.")
+        LpmBodyText("Based on medical best practices, here is your personalized daily routine.")
         Spacer(modifier = Modifier.height(20.dp))
 
         LpmCard {
