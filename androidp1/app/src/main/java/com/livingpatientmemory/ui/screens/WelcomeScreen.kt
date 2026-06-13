@@ -29,20 +29,17 @@ fun WelcomeScreen(
     var currentSlide by remember { mutableIntStateOf(0) }
     
     val slides = listOf(
-        Triple(
-            "📋",
+        Pair(
             "Prepare your medical appointments",
             "Track symptoms, vitals, and photos daily. Your doctor gets a complete picture, ready at appointment time."
         ),
-        Triple(
-            "⚙️",
+        Pair(
             "You define the rules",
             "Choose what to track — temperature, pain, photos, connected devices. You're in full control of your own tracking plan."
         ),
-        Triple(
-            "✨",
-            "AI builds your best plan",
-            "Gemini analyzes your situation and designs a personalized tracking schedule, optimized for your next appointment."
+        Pair(
+            "Evidence-based tracking",
+            "We prepare the best tracking schedule based on thousands of medical records, optimized for your next appointment."
         )
     )
 
@@ -75,11 +72,6 @@ fun WelcomeScreen(
                 ) {
                     Text(
                         text = slides[targetSlide].first,
-                        fontSize = 64.sp,
-                        modifier = Modifier.padding(bottom = 24.dp)
-                    )
-                    Text(
-                        text = slides[targetSlide].second,
                         style = MaterialTheme.typography.headlineLarge,
                         fontWeight = FontWeight.ExtraBold,
                         textAlign = TextAlign.Center,
@@ -87,7 +79,7 @@ fun WelcomeScreen(
                         modifier = Modifier.padding(bottom = 16.dp)
                     )
                     Text(
-                        text = slides[targetSlide].third,
+                        text = slides[targetSlide].second,
                         style = MaterialTheme.typography.bodyLarge,
                         color = Gray500,
                         textAlign = TextAlign.Center,
