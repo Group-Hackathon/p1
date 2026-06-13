@@ -269,7 +269,9 @@ type subscriptionResponse struct {
 
 // RecommendRequest is the payload from the mobile app
 type RecommendRequest struct {
-	Symptoms string `json:"symptoms"`
+	Symptoms        string                 `json:"symptoms"`
+	AppointmentDate string                 `json:"appointment_date,omitempty"`
+	Rules           map[string]interface{} `json:"rules,omitempty"`
 }
 
 // RecommendAgentHandler uses Gemini to find the best matching agent
@@ -286,15 +288,18 @@ func RecommendAgentHandler(db *pgxpool.Pool, geminiClient *gemini.Client) http.H
 			return
 		}
 
-		// Hardcoding the available catalog for the prompt (in a real app, we'd fetch active agents from DB)
-		prompt := "You are a medical triage assistant. Based on the following patient symptoms, select the best tracking protocol from the available list.\n" +
-			"Available Protocols:\n" +
-			"1. wound-monitoring (for cuts, burns, injuries)\n" +
-			"2. fever-episode (for fever, flu, viral infections)\n" +
-			"3. post-op-recovery (for post-surgery recovery)\n" +
-			"4. skin-rash-tracker (for eczema, allergies, rashes)\n\n" +
-			"Patient symptoms: " + req.Symptoms + "\n\n" +
-			"Reply ONLY with the exact ID of the best protocol from the list above. Do not include any other text."
+		prompt := "You are a medical triage assistant building a personalized tracking protocol for a patient.\n" +
+			"Patient symptoms: " + req.Symptoms + "\n"
+
+		if req.AppointmentDate != "" {
+			prompt += "Next appointment: " + req.AppointmentDate + "\n"
+		}
+		if len(req.Rules) > 0 {
+			rulesBytes, _ := json.Marshal(req.Rules)
+			prompt += "Patient sensors and rules enabled: " + string(rulesBytes) + "\n"
+		}
+
+		prompt += "\nBased ONLY on this information, generate a short daily tracking plan summary (e.g., '1 photo - morning', 'Pain check - evening'). Do not include greetings or disclaimers, just the daily tasks."
 
 		resp, err := geminiClient.GenerateText(r.Context(), prompt)
 		if err != nil {
@@ -303,25 +308,17 @@ func RecommendAgentHandler(db *pgxpool.Pool, geminiClient *gemini.Client) http.H
 			return
 		}
 
-		// Clean the response (Gemini might add quotes or spaces)
-		agentID := strings.TrimSpace(strings.ReplaceAll(resp, "\"", ""))
-
-		// Verify the agent exists in DB
-		var agent agentResponse
-		err = db.QueryRow(r.Context(),
-			"SELECT id, name, version, category, description, price_cents, duration_days_min, duration_days_max, gemini_model FROM agent_catalog WHERE id = $1",
-			agentID).Scan(
-			&agent.ID, &agent.Name, &agent.Version, &agent.Category, &agent.Description,
-			&agent.PriceCents, &agent.DurationDaysMin, &agent.DurationDaysMax, &agent.GeminiModel)
-
-		if err != nil {
-			// Fallback to wound-monitoring if Gemini hallucinated or failed
-			agentID = "wound-monitoring"
-			db.QueryRow(r.Context(),
-				"SELECT id, name, version, category, description, price_cents, duration_days_min, duration_days_max, gemini_model FROM agent_catalog WHERE id = $1",
-				agentID).Scan(
-				&agent.ID, &agent.Name, &agent.Version, &agent.Category, &agent.Description,
-				&agent.PriceCents, &agent.DurationDaysMin, &agent.DurationDaysMax, &agent.GeminiModel)
+		// Create a dynamic agent response
+		agent := agentResponse{
+			ID:              "dynamic-plan",
+			Name:            "Personalized Protocol",
+			Version:         "1.0",
+			Category:        "dynamic",
+			Description:     strings.TrimSpace(resp),
+			PriceCents:      0,
+			DurationDaysMin: 1,
+			DurationDaysMax: 30,
+			GeminiModel:     "gemini-3.5-flash",
 		}
 
 		w.Header().Set("Content-Type", "application/json")

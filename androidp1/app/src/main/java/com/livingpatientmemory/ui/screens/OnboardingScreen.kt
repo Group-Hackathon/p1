@@ -7,26 +7,24 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.livingpatientmemory.data.AuthHelper
 import com.livingpatientmemory.data.api.ApiClient
 import com.livingpatientmemory.data.model.RecommendRequest
 import com.livingpatientmemory.data.model.SubscriptionRequest
+import com.livingpatientmemory.data.model.TrackingRulesDto
 import com.livingpatientmemory.ui.components.*
 import com.livingpatientmemory.ui.theme.Black
 import com.livingpatientmemory.ui.theme.Gray200
 import com.livingpatientmemory.ui.theme.Gray600
 import com.livingpatientmemory.ui.theme.White
 import kotlinx.coroutines.launch
-
-private val appointmentOptions = listOf(
-    "This week",
-    "In 2 weeks",
-    "In a month",
-    "Not scheduled yet"
-)
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun OnboardingScreen(
@@ -36,23 +34,30 @@ fun OnboardingScreen(
 ) {
     var step by remember { mutableIntStateOf(1) }
     var symptomText by remember { mutableStateOf("") }
-    var appointmentChoice by remember { mutableStateOf<String?>(null) }
+    var appointmentDate by remember { mutableStateOf(LocalDate.now().plusDays(14)) }
+    
+    // Tracking rules state
+    var ruleTemperature by remember { mutableStateOf(false) }
+    var rulePain by remember { mutableStateOf(true) }
+    var rulePhotos by remember { mutableStateOf(true) }
+    var ruleSmartwatch by remember { mutableStateOf(false) }
+    var ruleBp by remember { mutableStateOf(false) }
+
     var isAnalyzing by remember { mutableStateOf(false) }
     var isStarting by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var showComingSoon by remember { mutableStateOf(false) }
-    var recommendedAgentId by remember { mutableStateOf("wound-monitoring") }
-    var recommendedAgentName by remember { mutableStateOf("") }
-    var recommendedAgentDesc by remember { mutableStateOf("") }
+    
+    var generatedPlan by remember { mutableStateOf("") }
 
     val scope = rememberCoroutineScope()
 
-    if (showComingSoon) {
-        ComingSoonDialog(onDismiss = { showComingSoon = false })
-    }
-
     Scaffold(
-        topBar = { LpmTopBar(title = "New Follow-up", onBack = onBack) },
+        topBar = { 
+            LpmTopBar(
+                title = "New Tracking", 
+                onBack = { if (step > 1) step-- else onBack() }
+            ) 
+        },
         containerColor = MaterialTheme.colorScheme.background,
         modifier = modifier
     ) { padding ->
@@ -63,19 +68,34 @@ fun OnboardingScreen(
                 .padding(horizontal = 20.dp)
         ) {
             Spacer(modifier = Modifier.height(16.dp))
-            LpmStepIndicator(currentStep = step, totalSteps = 2)
+            LpmStepIndicator(currentStep = step, totalSteps = 4)
             Spacer(modifier = Modifier.height(28.dp))
 
             when (step) {
                 1 -> DescribeStep(
                     symptomText = symptomText,
                     onSymptomChange = { symptomText = it },
-                    appointmentChoice = appointmentChoice,
-                    onAppointmentChange = { appointmentChoice = it },
-                    onScanPrescription = { showComingSoon = true },
-                    errorMessage = errorMessage,
+                    onNext = { step = 2 }
+                )
+                2 -> DateStep(
+                    date = appointmentDate,
+                    onDateChange = { appointmentDate = it },
+                    onNext = { step = 3 }
+                )
+                3 -> RulesStep(
+                    ruleTemperature = ruleTemperature,
+                    onRuleTemperatureChange = { ruleTemperature = it },
+                    rulePain = rulePain,
+                    onRulePainChange = { rulePain = it },
+                    rulePhotos = rulePhotos,
+                    onRulePhotosChange = { rulePhotos = it },
+                    ruleSmartwatch = ruleSmartwatch,
+                    onRuleSmartwatchChange = { ruleSmartwatch = it },
+                    ruleBp = ruleBp,
+                    onRuleBpChange = { ruleBp = it },
                     isLoading = isAnalyzing,
-                    onAnalyze = {
+                    errorMessage = errorMessage,
+                    onGeneratePlan = {
                         isAnalyzing = true
                         errorMessage = null
                         scope.launch {
@@ -84,32 +104,36 @@ fun OnboardingScreen(
                                     errorMessage = "Unable to connect."
                                     return@launch
                                 }
-                                val response = ApiClient.apiService.recommendAgent(
-                                    RecommendRequest(symptoms = symptomText)
+                                
+                                val rulesDto = TrackingRulesDto(
+                                    temperature = ruleTemperature,
+                                    pain = rulePain,
+                                    photos = rulePhotos,
+                                    smartwatch = ruleSmartwatch,
+                                    blood_pressure = ruleBp
                                 )
-                                recommendedAgentId = response.id
-                                recommendedAgentName = response.name
-                                recommendedAgentDesc = response.description
-                                step = 2
-                            } catch (_: Exception) {
-                                recommendedAgentId = "wound-monitoring"
-                                recommendedAgentName = "Wound & Injury Monitoring"
-                                recommendedAgentDesc = "Daily photos, pain tracking, and infection checks."
-                                step = 2
+
+                                val response = ApiClient.apiService.recommendAgent(
+                                    RecommendRequest(
+                                        symptoms = symptomText,
+                                        appointment_date = appointmentDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                                        rules = rulesDto
+                                    )
+                                )
+                                generatedPlan = response.description
+                                step = 4
+                            } catch (e: Exception) {
+                                errorMessage = "Failed to generate plan: ${e.message}"
                             } finally {
                                 isAnalyzing = false
                             }
                         }
                     }
                 )
-                2 -> ConfirmStep(
-                    agentName = recommendedAgentName.ifEmpty { "Wound & Injury Monitoring" },
-                    agentDesc = recommendedAgentDesc.ifEmpty {
-                        "14-day protocol: guided photos, pain questionnaire, infection check."
-                    },
-                    appointmentChoice = appointmentChoice,
-                    errorMessage = errorMessage,
+                4 -> ConfirmStep(
+                    planText = generatedPlan,
                     isLoading = isStarting,
+                    errorMessage = errorMessage,
                     onConfirm = {
                         isStarting = true
                         errorMessage = null
@@ -119,27 +143,36 @@ fun OnboardingScreen(
                                     errorMessage = "Unable to connect."
                                     return@launch
                                 }
-                                val profileId = AuthHelper.ensureProfile()
-                                    ?: throw IllegalStateException("Profile not found")
+                                val profileId = AuthHelper.ensureProfile() ?: throw IllegalStateException("Profile not found")
+                                
+                                val rulesMap = mapOf(
+                                    "temperature" to ruleTemperature,
+                                    "pain" to rulePain,
+                                    "photos" to rulePhotos,
+                                    "smartwatch" to ruleSmartwatch,
+                                    "blood_pressure" to ruleBp
+                                )
+
                                 ApiClient.apiService.createSubscription(
                                     SubscriptionRequest(
                                         profile_id = profileId,
-                                        agent_id = recommendedAgentId,
+                                        agent_id = "dynamic-plan",
                                         parameters = mapOf(
                                             "symptoms" to symptomText,
-                                            "next_appointment" to (appointmentChoice ?: "unknown")
+                                            "next_appointment" to appointmentDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                                            "rules" to rulesMap,
+                                            "plan" to generatedPlan
                                         )
                                     )
                                 )
-                                onFollowUpCreated(recommendedAgentName.ifEmpty { "Follow-up" })
+                                onFollowUpCreated("Personalized Protocol")
                             } catch (e: Exception) {
                                 errorMessage = "Failed: ${e.message}"
                             } finally {
                                 isStarting = false
                             }
                         }
-                    },
-                    onBack = { step = 1 }
+                    }
                 )
             }
         }
@@ -150,18 +183,9 @@ fun OnboardingScreen(
 private fun DescribeStep(
     symptomText: String,
     onSymptomChange: (String) -> Unit,
-    appointmentChoice: String?,
-    onAppointmentChange: (String) -> Unit,
-    onScanPrescription: () -> Unit,
-    errorMessage: String?,
-    isLoading: Boolean,
-    onAnalyze: () -> Unit
+    onNext: () -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-    ) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         LpmSectionTitle("What would you like to track?")
         Spacer(modifier = Modifier.height(8.dp))
         LpmBodyText("Describe your situation in a few sentences.")
@@ -170,15 +194,8 @@ private fun DescribeStep(
         OutlinedTextField(
             value = symptomText,
             onValueChange = onSymptomChange,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 120.dp),
-            placeholder = {
-                Text(
-                    "e.g. knee wound for 3 days, fever at 39°C, spreading rash…",
-                    color = Gray600
-                )
-            },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp),
+            placeholder = { Text("e.g. knee wound for 3 days, fever at 39°C...", color = Gray600) },
             shape = RoundedCornerShape(4.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = Black,
@@ -187,47 +204,88 @@ private fun DescribeStep(
             )
         )
 
-        Spacer(modifier = Modifier.height(28.dp))
-        Text(
-            text = "When is your next doctor appointment?",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = Black
+        Spacer(modifier = Modifier.weight(1f))
+        LpmPrimaryButton(
+            text = "Continue",
+            onClick = onNext,
+            enabled = symptomText.isNotBlank()
         )
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(24.dp))
+    }
+}
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            appointmentOptions.chunked(2).forEach { rowOptions ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    rowOptions.forEach { option ->
-                        SelectableChip(
-                            label = option,
-                            selected = appointmentChoice == option,
-                            onClick = { onAppointmentChange(option) },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    if (rowOptions.size == 1) Spacer(modifier = Modifier.weight(1f))
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DateStep(
+    date: LocalDate,
+    onDateChange: (LocalDate) -> Unit,
+    onNext: () -> Unit
+) {
+    // For simplicity in the prototype, we use a basic date display with buttons to change
+    // In a real app, we'd use DatePickerDialog
+    Column(modifier = Modifier.fillMaxSize()) {
+        LpmSectionTitle("When is your appointment?")
+        Spacer(modifier = Modifier.height(8.dp))
+        LpmBodyText("Select the exact date of your next medical checkup.")
+        Spacer(modifier = Modifier.height(32.dp))
+
+        LpmCard {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = date.format(DateTimeFormatter.ofPattern("MMMM d, yyyy")),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Row {
+                    OutlinedButton(onClick = { onDateChange(date.minusDays(1)) }) { Text("-") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    OutlinedButton(onClick = { onDateChange(date.plusDays(1)) }) { Text("+") }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
-        LpmSecondaryButton(
-            text = "Scan your prescription or appointment",
-            onClick = onScanPrescription
-        )
+        Spacer(modifier = Modifier.weight(1f))
+        LpmPrimaryButton(text = "Continue", onClick = onNext)
+        Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun RulesStep(
+    ruleTemperature: Boolean, onRuleTemperatureChange: (Boolean) -> Unit,
+    rulePain: Boolean, onRulePainChange: (Boolean) -> Unit,
+    rulePhotos: Boolean, onRulePhotosChange: (Boolean) -> Unit,
+    ruleSmartwatch: Boolean, onRuleSmartwatchChange: (Boolean) -> Unit,
+    ruleBp: Boolean, onRuleBpChange: (Boolean) -> Unit,
+    isLoading: Boolean,
+    errorMessage: String?,
+    onGeneratePlan: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        LpmSectionTitle("Your tracking rules")
+        Spacer(modifier = Modifier.height(8.dp))
+        LpmBodyText("Choose what you want to monitor. The AI will adapt your plan accordingly.")
+        Spacer(modifier = Modifier.height(24.dp))
+
+        RuleToggle("🌡️", "Temperature", "Manual entries", ruleTemperature, onRuleTemperatureChange)
+        RuleToggle("🤒", "Pain tracking", "Daily pain level", rulePain, onRulePainChange)
+        RuleToggle("📸", "Daily photos", "Guided photo capture", rulePhotos, onRulePhotosChange)
+        RuleToggle("⌚", "Smartwatch data", "Heart rate, steps", ruleSmartwatch, onRuleSmartwatchChange)
+        RuleToggle("💓", "Blood pressure", "Manual or connected", ruleBp, onRuleBpChange)
 
         errorMessage?.let {
             Spacer(modifier = Modifier.height(12.dp))
             Text(it, color = Gray600, style = MaterialTheme.typography.bodySmall)
         }
 
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(32.dp))
         LpmPrimaryButton(
-            text = "Find my protocol",
-            onClick = onAnalyze,
-            enabled = symptomText.isNotBlank(),
+            text = "Generate my plan",
+            onClick = onGeneratePlan,
             loading = isLoading
         )
         Spacer(modifier = Modifier.height(24.dp))
@@ -235,99 +293,79 @@ private fun DescribeStep(
 }
 
 @Composable
-private fun SelectableChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+private fun RuleToggle(
+    emoji: String, title: String, subtitle: String,
+    checked: Boolean, onCheckedChange: (Boolean) -> Unit
 ) {
-    OutlinedButton(
-        onClick = onClick,
-        modifier = modifier.height(44.dp),
-        shape = RoundedCornerShape(4.dp),
-        border = BorderStroke(1.dp, if (selected) Black else Gray200),
-        contentPadding = PaddingValues(horizontal = 8.dp),
-        colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = if (selected) Black else White,
-            contentColor = if (selected) White else Black
-        )
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1
-        )
+    LpmCard(modifier = Modifier.padding(bottom = 12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text = emoji, fontSize = 24.sp)
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = title, fontWeight = FontWeight.Bold, color = Black)
+                Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = Gray600)
+            }
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = White,
+                    checkedTrackColor = Black,
+                    uncheckedThumbColor = White,
+                    uncheckedTrackColor = Gray200,
+                    uncheckedBorderColor = Gray200
+                )
+            )
+        }
     }
 }
 
 @Composable
 private fun ConfirmStep(
-    agentName: String,
-    agentDesc: String,
-    appointmentChoice: String?,
-    errorMessage: String?,
+    planText: String,
     isLoading: Boolean,
-    onConfirm: () -> Unit,
-    onBack: () -> Unit
+    errorMessage: String?,
+    onConfirm: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        LpmSectionTitle("Your protocol")
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        LpmSectionTitle("Your AI Plan")
+        Spacer(modifier = Modifier.height(8.dp))
+        LpmBodyText("Gemini has built this routine based on your rules.")
         Spacer(modifier = Modifier.height(20.dp))
 
         LpmCard {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
-                    text = agentName,
+                    text = "Daily Routine",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = Black
                 )
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = agentDesc,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Gray600
-                )
-                appointmentChoice?.let {
-                    Spacer(modifier = Modifier.height(14.dp))
-                    HorizontalDivider(color = Gray200)
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Text(
-                        text = "Next appointment: $it",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Black
-                    )
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // Simple parser for bullet points
+                val lines = planText.split("\n").filter { it.isNotBlank() }
+                lines.forEach { line ->
+                    val cleanLine = line.removePrefix("- ").removePrefix("* ")
+                    DailyTaskItem(cleanLine)
                 }
             }
         }
-
-        Spacer(modifier = Modifier.height(28.dp))
-        Text(
-            text = "Every day:",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = Black
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        DailyTaskItem("1 guided photo — morning")
-        DailyTaskItem("1 pain questionnaire — evening")
-        DailyTaskItem("1 infection check — evening")
 
         errorMessage?.let {
             Spacer(modifier = Modifier.height(12.dp))
             Text(it, color = Gray600, style = MaterialTheme.typography.bodySmall)
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(32.dp))
         LpmPrimaryButton(
-            text = "Start my follow-up",
+            text = "Start my tracking",
             onClick = onConfirm,
             loading = isLoading
         )
-        Spacer(modifier = Modifier.height(12.dp))
-        LpmSecondaryButton(text = "Edit my description", onClick = onBack)
         Spacer(modifier = Modifier.height(24.dp))
     }
 }
