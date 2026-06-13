@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
+import kotlinx.coroutines.launch
 import com.livingpatientmemory.ui.components.LpmCard
 import com.livingpatientmemory.ui.theme.*
 
@@ -25,6 +26,7 @@ import com.livingpatientmemory.ui.theme.*
 @Composable
 fun ProfileScreen(
     onBack: () -> Unit,
+    onLogout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var watchConnected by remember { mutableStateOf(false) }
@@ -33,6 +35,7 @@ fun ProfileScreen(
     var scaleConnected by remember { mutableStateOf(false) }
     var userName by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         containerColor = White,
@@ -122,8 +125,19 @@ fun ProfileScreen(
             item {
                 SectionTitle("ACCOUNT")
                 MenuRow(label = "Export my data")
-                MenuRow(label = "Sign out", isDestructive = false)
-                MenuRow(label = "Delete account and all data", isDestructive = true)
+                MenuRow(label = "Sign out", isDestructive = false, onClick = {
+                    com.livingpatientmemory.data.SessionManager.clearSession()
+                    onLogout()
+                })
+                MenuRow(label = "Delete account and all data", isDestructive = true, onClick = {
+                    scope.launch {
+                        try {
+                            com.livingpatientmemory.data.api.ApiClient.apiService.deleteAccount()
+                        } catch (e: Exception) {}
+                        com.livingpatientmemory.data.SessionManager.clearSession()
+                        onLogout()
+                    }
+                })
             }
         }
     }
@@ -177,12 +191,13 @@ private fun DeviceRow(
 private fun MenuRow(
     label: String,
     value: String? = null,
-    isDestructive: Boolean = false
+    isDestructive: Boolean = false,
+    onClick: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { /* TODO */ }
+            .clickable { onClick() }
             .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

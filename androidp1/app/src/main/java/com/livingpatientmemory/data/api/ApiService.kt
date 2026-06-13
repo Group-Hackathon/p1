@@ -34,4 +34,7 @@ interface ApiService {
 
     @DELETE("api/v1/subscriptions/{id}")
     suspend fun deleteSubscription(@Path("id") id: String)
+
+    @DELETE("api/v1/auth/delete")
+    suspend fun deleteAccount()
 }

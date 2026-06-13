@@ -41,4 +41,9 @@ object SessionManager {
         }
         return id
     }
+
+    fun clearSession() {
+        if (!this::prefs.isInitialized) return
+        prefs.edit().clear().apply()
+    }
 }

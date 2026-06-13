@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
@@ -433,6 +434,18 @@ func (h *Handler) DeleteSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 	if res.RowsAffected() == 0 {
 		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// DeleteAccount deletes the authenticated user and all associated data.
+func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(auth.UserIDKey).(string)
+
+	_, err := h.db.Exec(r.Context(), `DELETE FROM users WHERE id = $1`, userID)
+	if err != nil {
+		http.Error(w, `{"error":"failed to delete account"}`, http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

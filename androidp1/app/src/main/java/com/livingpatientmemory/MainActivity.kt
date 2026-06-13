@@ -126,6 +126,10 @@ private fun AppRoot() {
         ) { padding ->
             ProfileScreen(
                 onBack = { screen = AppScreen.Home },
+                onLogout = {
+                    hasSeenWelcome = false
+                    screen = AppScreen.Splash
+                },
                 modifier = Modifier.padding(padding)
             )
         }
