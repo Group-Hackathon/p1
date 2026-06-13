@@ -40,28 +40,28 @@ func formatRetryAfter(d time.Duration) string {
 
 // GlobalPerIP limits all traffic per IP (health included, but health is cheap).
 func GlobalPerIP() func(http.Handler) http.Handler {
-	return httprate.LimitByIP(120, time.Minute, httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
+	return httprate.Limit(120, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP), httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
 		TooManyRequestsJSON(w, time.Minute)
 	}))
 }
 
 // AuthPerIP limits register/login to reduce account spam.
 func AuthPerIP() func(http.Handler) http.Handler {
-	return httprate.LimitByIP(10, time.Minute, httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
+	return httprate.Limit(10, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP), httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
 		TooManyRequestsJSON(w, time.Minute)
 	}))
 }
 
 // APIPerIP limits authenticated routes per IP.
 func APIPerIP() func(http.Handler) http.Handler {
-	return httprate.LimitByIP(60, time.Minute, httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
+	return httprate.Limit(60, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP), httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
 		TooManyRequestsJSON(w, time.Minute)
 	}))
 }
 
 // RecommendPerIP limits Gemini calls per IP (expensive).
 func RecommendPerIP() func(http.Handler) http.Handler {
-	return httprate.LimitByIP(5, time.Minute, httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
+	return httprate.Limit(5, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP), httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
 		TooManyRequestsJSON(w, time.Minute)
 	}))
 }
