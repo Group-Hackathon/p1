@@ -63,6 +63,16 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 		)`,
 
+		// Vertical timeline events
+		`CREATE TABLE IF NOT EXISTS timeline_events (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			subscription_id UUID REFERENCES subscriptions(id) ON DELETE CASCADE,
+			type VARCHAR(50) NOT NULL, -- 'user', 'ai', 'system'
+			date_label VARCHAR(100), -- e.g. 'Day 1 - Evening'
+			content TEXT NOT NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		)`,
+
 		// Seed the wound-monitoring agent
 		`INSERT INTO agent_catalog (id, name, version, category, description, price_cents, duration_days_min, duration_days_max, duration_days_default, gemini_model, system_prompt)
 		VALUES (

@@ -45,6 +45,39 @@ const state = {
   },
 };
 
+// ═══ DRAWER ═══
+function toggleDrawer() {
+  const drawer = document.getElementById('mainDrawer');
+  const overlay = document.getElementById('drawerOverlay');
+  if (drawer.classList.contains('open')) {
+    drawer.classList.remove('open');
+    overlay.classList.remove('visible');
+  } else {
+    drawer.classList.add('open');
+    overlay.classList.add('visible');
+    renderDrawerList();
+  }
+}
+
+function renderDrawerList() {
+  const list = document.getElementById('drawerTrackingsList');
+  if (!list) return;
+  
+  if (state.trackings.length === 0) {
+    list.innerHTML = `<div style="font-size:13px; color:var(--gray-400); padding:12px;">No active trackings.</div>`;
+    return;
+  }
+  
+  list.innerHTML = state.trackings.map((t, i) => `
+    <div class="drawer-item ${state.selectedTracking === i && state.currentScreen === 'detail' ? 'active' : ''}" onclick="openTracking(${i}); toggleDrawer()">
+      <div style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${t.title}</div>
+      <div class="tracking-badge ${t.isActive ? '' : 'tracking-badge--done'}" style="font-size:9px; padding:2px 6px;">
+        ${t.isActive ? `${t.daysLeft}d` : 'Done'}
+      </div>
+    </div>
+  `).join('');
+}
+
 // ═══ NAVIGATION ═══
 function goTo(screenId) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -68,7 +101,7 @@ function goTo(screenId) {
 // ═══ ONBOARDING ═══
 const onboardingNext = document.getElementById('onboardingNext');
 onboardingNext?.addEventListener('click', () => {
-  if (state.onboardingSlide < 3) {
+  if (state.onboardingSlide < 2) {
     state.onboardingSlide++;
     updateOnboardingSlide();
   } else {
@@ -85,8 +118,8 @@ function updateOnboardingSlide() {
   if (slide) slide.classList.add('active');
   if (dot) dot.classList.add('active');
 
-  if (state.onboardingSlide === 3) {
-    onboardingNext.textContent = 'Get started';
+  if (state.onboardingSlide === 2) {
+    onboardingNext.textContent = 'Start a new tracking';
   } else {
     onboardingNext.textContent = 'Next';
   }
@@ -138,13 +171,13 @@ function updateHome() {
             <div class="tracking-card-title">${t.title}</div>
             <div class="tracking-card-sub">Day ${t.currentDay} of ${t.totalDays}</div>
           </div>
-          <div class="tracking-badge ${t.isActive ? '' : 'tracking-badge--done'}">
-            ${t.isActive ? `${t.daysLeft}d left` : 'Completed'}
-          </div>
+          <button class="btn-icon" style="color:var(--gray-400)" onclick="event.stopPropagation(); deleteTrackingIndex(${i})">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          </button>
         </div>
         <div class="progress-bar"><div class="progress-fill" style="width:${t.progress}%"></div></div>
         <div class="tracking-card-footer">
-          <span>📅 ${new Date(t.appointmentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+          <span>${new Date(t.appointmentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
           <span>${t.isActive ? 'View plan →' : 'View summary →'}</span>
         </div>
       </div>
@@ -167,6 +200,12 @@ function updateCountdown(targetDate) {
 function openTracking(index) {
   state.selectedTracking = index;
   goTo('detail');
+}
+
+function deleteTrackingIndex(index) {
+  state.trackings.splice(index, 1);
+  updateHome();
+  showToast('Tracking deleted');
 }
 
 // ═══ NEW TRACKING WIZARD ═══
@@ -269,7 +308,6 @@ function renderStep3(el) {
 
     <div class="toggle-row" onclick="toggleRule(this, 'temperature')">
       <div class="toggle-row-left">
-        <span class="toggle-emoji">🌡️</span>
         <div>
           <div class="toggle-label">Temperature</div>
           <div class="toggle-sublabel">I take my temperature with a device</div>
@@ -280,7 +318,6 @@ function renderStep3(el) {
 
     <div class="toggle-row" onclick="toggleRule(this, 'pain')">
       <div class="toggle-row-left">
-        <span class="toggle-emoji">😣</span>
         <div>
           <div class="toggle-label">Pain tracking</div>
           <div class="toggle-sublabel">Daily pain level and location</div>
@@ -291,7 +328,6 @@ function renderStep3(el) {
 
     <div class="toggle-row" onclick="toggleRule(this, 'photos')">
       <div class="toggle-row-left">
-        <span class="toggle-emoji">📸</span>
         <div>
           <div class="toggle-label">Daily photos</div>
           <div class="toggle-sublabel">Guided photo capture of the area</div>
@@ -302,7 +338,6 @@ function renderStep3(el) {
 
     <div class="toggle-row" onclick="toggleRule(this, 'smartwatch')">
       <div class="toggle-row-left">
-        <span class="toggle-emoji">⌚</span>
         <div>
           <div class="toggle-label">Smartwatch data</div>
           <div class="toggle-sublabel">Heart rate, steps, sleep</div>
@@ -313,7 +348,6 @@ function renderStep3(el) {
 
     <div class="toggle-row" onclick="toggleRule(this, 'bloodPressure')">
       <div class="toggle-row-left">
-        <span class="toggle-emoji">💓</span>
         <div>
           <div class="toggle-label">Blood pressure</div>
           <div class="toggle-sublabel">Manual or connected BP readings</div>
@@ -330,7 +364,7 @@ function renderStep3(el) {
     <div style="display:flex; gap:10px; margin-top:8px;">
       <button class="btn-secondary" style="flex:1;" onclick="prevWizardStep()">Back</button>
       <button class="btn-primary btn-primary--accent" style="flex:2;" onclick="nextWizardStep()">
-        ✨ Generate my plan
+        Generate my plan
       </button>
     </div>
   `;
@@ -349,19 +383,18 @@ function renderStep4(el) {
 
   // Build plan items based on rules
   const planItems = [];
-  if (r.photos) planItems.push({ icon: '📸', title: 'Guided photo capture', desc: 'Morning — consistent framing for comparison' });
-  if (r.pain) planItems.push({ icon: '😣', title: 'Pain & symptom check-in', desc: 'Evening — pain scale, infection signs' });
-  if (r.temperature) planItems.push({ icon: '🌡️', title: 'Temperature log', desc: 'Every 8 hours while symptoms are present' });
-  if (r.smartwatch) planItems.push({ icon: '⌚', title: 'Automatic health data', desc: 'Heart rate, steps, sleep — pulled daily' });
-  if (r.bloodPressure) planItems.push({ icon: '💓', title: 'Blood pressure reading', desc: 'Morning and evening' });
-  if (r.custom) planItems.push({ icon: '📝', title: r.custom, desc: 'Custom tracking — daily entry' });
+  if (r.photos) planItems.push({ title: 'Guided photo capture', desc: 'Morning — consistent framing for comparison' });
+  if (r.pain) planItems.push({ title: 'Pain & symptom check-in', desc: 'Evening — pain scale, infection signs' });
+  if (r.temperature) planItems.push({ title: 'Temperature log', desc: 'Every 8 hours while symptoms are present' });
+  if (r.smartwatch) planItems.push({ title: 'Automatic health data', desc: 'Heart rate, steps, sleep — pulled daily' });
+  if (r.bloodPressure) planItems.push({ title: 'Blood pressure reading', desc: 'Morning and evening' });
+  if (r.custom) planItems.push({ title: r.custom, desc: 'Custom tracking — daily entry' });
 
   state.newTracking.aiPlan = { totalDays, planItems };
 
   el.innerHTML = `
     <div class="ai-card">
       <div class="ai-card-header">
-        <span>✨</span>
         <span>AI-Generated Plan</span>
       </div>
       <div class="ai-card-title">${totalDays}-day personalized tracking</div>
@@ -373,8 +406,7 @@ function renderStep4(el) {
     <div class="section-label" style="margin-top:0">Daily routine (under 2 minutes)</div>
     <div class="plan-list">
       ${planItems.map(item => `
-        <div class="plan-item">
-          <div class="plan-icon">${item.icon}</div>
+        <div class="plan-item" style="padding-left:16px;">
           <div class="plan-text">
             <h4>${item.title}</h4>
             <p>${item.desc}</p>
@@ -391,7 +423,7 @@ function renderStep4(el) {
     <div style="display:flex; gap:10px; margin-top:16px;">
       <button class="btn-secondary" style="flex:1;" onclick="prevWizardStep()">Back</button>
       <button class="btn-primary btn-primary--accent" style="flex:2;" onclick="startTracking()">
-        ▶ Start my tracking
+        Start my tracking
       </button>
     </div>
   `;
@@ -445,6 +477,9 @@ function startTracking() {
     progress: Math.round((1 / totalDays) * 100),
     isActive: true,
     createdAt: new Date().toISOString(),
+    messages: [
+      { type: 'user', date: 'Day 1 - Morning', text: 'Started the tracking plan.' },
+    ]
   };
 
   state.trackings.push(tracking);
@@ -467,47 +502,93 @@ function updateDetail() {
   if (!t) return;
 
   document.getElementById('detailTitle').textContent = t.title;
-  document.getElementById('detDaysDone').textContent = t.currentDay;
-  document.getElementById('detDaysLeft').textContent = t.daysLeft;
-  document.getElementById('detPercent').textContent = t.progress + '%';
-  document.getElementById('detProgress').style.width = t.progress + '%';
   document.getElementById('detApptDate').textContent =
     new Date(t.appointmentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
   // Build timeline
-  const timeline = document.getElementById('detailTimeline');
+  const vt = document.getElementById('vtContainer');
+  if (!vt) return;
   let html = '';
-  for (let i = 1; i <= Math.min(t.totalDays, 14); i++) {
-    const isDone = i < t.currentDay;
-    const isToday = i === t.currentDay;
-    const startDate = new Date(t.createdAt);
-    const dayDate = new Date(startDate.getTime() + (i - 1) * 86400000);
-    const dateStr = dayDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-    const isLast = i === Math.min(t.totalDays, 14);
-
-    // Build tasks text from rules
-    const tasks = [];
-    if (t.rules.photos) tasks.push('Photo 9am');
-    if (t.rules.pain) tasks.push('Check-in 7pm');
-    if (t.rules.temperature) tasks.push('Temp x3');
-
+  t.messages.forEach((m, idx) => {
+    const side = (idx % 2 === 0) ? 'left' : 'right';
     html += `
-      <div class="timeline-node ${isDone ? 'done' : ''} ${isToday ? 'today' : ''}">
-        ${!isLast ? '<div class="timeline-line"></div>' : ''}
-        <div class="timeline-circle">${isDone ? '✓' : i}</div>
-        <div class="timeline-content">
-          <div class="timeline-day">Day ${i}${isToday ? ' — Today' : ''}</div>
-          <div class="timeline-date">${dateStr}</div>
-          ${!isDone ? `<div class="timeline-tasks">${tasks.join(' · ')}</div>` : ''}
-          ${isToday ? '<button class="btn-primary btn-primary--accent btn-sm" style="margin-top:8px; width:auto; padding:0 16px;" onclick="goTo(\'routine\')">Start routine</button>' : ''}
+      <div class="vt-node ${side}">
+        <div class="vt-dot"></div>
+        <div class="vt-bubble">
+          <div class="vt-date">${m.date || 'Record'}</div>
+          <div class="vt-text">${m.text}</div>
+        </div>
+      </div>
+    `;
+  });
+  
+  // Render Current Pending Card
+  if (t.isActive && !t.routineDoneToday) {
+    html += `
+      <div class="vt-input-wrapper">
+        <div class="vt-input-card">
+          <h3>Evening Check-in</h3>
+          <p>What is your current pain level?</p>
+          <div style="display:flex; gap:8px;">
+            <input type="range" min="0" max="10" value="3" style="flex:1" id="vtQuickPain" />
+            <span style="font-weight:bold; width:20px; text-align:right;" id="vtQuickPainVal">3</span>
+          </div>
+          <div class="vt-chat-row">
+            <input type="text" id="vtChatInput" placeholder="Or type a message..." />
+            <button onclick="submitVtForm()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  } else {
+    html += `
+      <div class="vt-input-wrapper">
+        <div style="background:var(--gray-100); padding:12px 24px; border-radius:20px; font-size:13px; color:var(--gray-500); font-weight:600;">
+          All caught up for today!
         </div>
       </div>
     `;
   }
-  if (t.totalDays > 14) {
-    html += `<div style="text-align:center; padding:12px; color:var(--gray-400); font-size:13px;">... and ${t.totalDays - 14} more days</div>`;
+  
+  vt.innerHTML = html;
+  
+  const painSlider = document.getElementById('vtQuickPain');
+  if (painSlider) {
+    painSlider.oninput = (e) => {
+      document.getElementById('vtQuickPainVal').textContent = e.target.value;
+    };
   }
-  timeline.innerHTML = html;
+  
+  // Scroll to bottom
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
+function submitVtForm() {
+  const t = state.trackings[state.selectedTracking];
+  if (!t) return;
+  
+  const chatInput = document.getElementById('vtChatInput').value.trim();
+  const pain = document.getElementById('vtQuickPain').value;
+  
+  let msgText = chatInput ? chatInput : `Pain level recorded at ${pain}/10.`;
+  
+  t.messages.push({
+    type: 'user',
+    text: msgText,
+    date: `Day ${t.currentDay} - Evening`
+  });
+  
+  t.routineDoneToday = true;
+  t.currentDay = Math.min(t.currentDay + 1, t.totalDays);
+  t.daysLeft = Math.max(0, t.daysLeft - 1);
+  
+  // Simulate AI response
+  setTimeout(() => {
+    t.messages.push({ type: 'ai', date: `Day ${t.currentDay - 1} - Assistant`, text: "I've noted that down in your medical journal." });
+    updateDetail();
+  }, 1000);
 }
 
 function toggleManageModal() {
@@ -594,7 +675,7 @@ function renderRoutineStep() {
             <span style="font-size:13px; color:var(--gray-500);">Camera preview — align with frame</span>
           </div>
           <p style="font-size:13px; color:var(--gray-500); margin-bottom:16px;">Position the area to track inside the frame. Keep the same distance and angle as previous days.</p>
-          <button class="btn-primary btn-primary--accent" onclick="nextRoutineStep()">📸 Take photo</button>
+          <button class="btn-primary btn-primary--accent" onclick="nextRoutineStep()">Take photo</button>
         </div>
       `;
       break;
@@ -714,9 +795,21 @@ function selectMeasure(btn) {
 
 // ═══ PROFILE ═══
 function updateProfile() {
-  const initials = state.user.name.split(' ').map(w => w[0]).join('').toUpperCase();
-  document.getElementById('profileAvatarLg').textContent = initials;
-  document.getElementById('profileName').textContent = state.user.name;
+  const nameInput = document.getElementById('profileNameInput');
+  if (nameInput) {
+    nameInput.value = state.user.name;
+    nameInput.onchange = (e) => {
+      state.user.name = e.target.value;
+      updateProfileAvatar();
+    };
+  }
+  updateProfileAvatar();
+}
+
+function updateProfileAvatar() {
+  const initials = (state.user.name || 'A').split(' ').map(w => w[0] || '').join('').toUpperCase();
+  const avatarLg = document.getElementById('profileAvatarLg');
+  if (avatarLg) avatarLg.textContent = initials;
 }
 
 function toggleDevice(row) {
@@ -741,7 +834,12 @@ function showToast(message) {
 
 // ═══ POV PANEL NAVIGATION ═══
 document.querySelectorAll('.pov-nav button').forEach(btn => {
-  btn.addEventListener('click', () => goTo(btn.dataset.screen));
+  btn.addEventListener('click', () => {
+    const screen = btn.dataset.screen;
+    // Don't show routine screen directly from nav anymore
+    if (screen === 'routine') return showToast('Routines are now handled in the chat detail screen');
+    goTo(screen);
+  });
 });
 
 // ═══ INIT ═══
