@@ -11,7 +11,9 @@ data class AuthResponse(
 )
 
 data class RecommendRequest(
-    val symptoms: String
+    val symptoms: String,
+    val appointment_date: String? = null,
+    val rules: TrackingRulesDto? = null
 )
 
 data class User(
@@ -61,4 +63,32 @@ data class SubscriptionResponse(
     val private_backend_url: String,
     val starts_at: String,
     val expires_at: String
+)
+
+// ── New models for the refonte ──
+
+data class TrackingRulesDto(
+    val temperature: Boolean = false,
+    val pain: Boolean = true,
+    val photos: Boolean = true,
+    val smartwatch: Boolean = false,
+    val blood_pressure: Boolean = false,
+    val custom: String = ""
+)
+
+/** Local-only model representing tracking rules on the device */
+data class TrackingRules(
+    val temperature: Boolean = true,
+    val pain: Boolean = true,
+    val photos: Boolean = true,
+    val smartwatch: Boolean = false,
+    val bloodPressure: Boolean = false,
+    val custom: String = ""
+)
+
+/** Local-only model representing an AI-generated plan item */
+data class PlanItem(
+    val icon: String,
+    val title: String,
+    val description: String
 )

@@ -16,6 +16,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,7 +65,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class AppScreen {
-    Splash, Home, NewFollowUp, Journey, Routine, Notifications
+    Splash, Welcome, Home, NewFollowUp, Journey, Routine, Notifications, Profile
 }
 
 @Composable
@@ -65,24 +73,58 @@ private fun AppRoot() {
     var screen by remember { mutableStateOf(AppScreen.Splash) }
     var refreshKey by remember { mutableIntStateOf(0) }
     var selectedFollowUp by remember { mutableStateOf<FollowUpUi?>(null) }
+    var hasSeenWelcome by remember { mutableStateOf(SessionManager.getToken() != null) }
 
     LaunchedEffect(Unit) {
         delay(1400)
-        if (screen == AppScreen.Splash) screen = AppScreen.Home
+        if (screen == AppScreen.Splash) {
+            screen = if (hasSeenWelcome) AppScreen.Home else AppScreen.Welcome
+        }
     }
 
     when (screen) {
         AppScreen.Splash -> SplashScreen()
 
-        AppScreen.Home -> DashboardScreen(
-            refreshKey = refreshKey,
-            onNewFollowUp = { screen = AppScreen.NewFollowUp },
-            onOpenJourney = { followUp ->
-                selectedFollowUp = followUp
-                screen = AppScreen.Journey
-            },
-            onOpenNotifications = { screen = AppScreen.Notifications }
+        AppScreen.Welcome -> WelcomeScreen(
+            onFinish = {
+                hasSeenWelcome = true
+                screen = AppScreen.Home
+            }
         )
+
+        AppScreen.Home -> Scaffold(
+            bottomBar = {
+                LpmTabBar(
+                    currentScreen = screen,
+                    onNavigate = { screen = it }
+                )
+            }
+        ) { padding ->
+            DashboardScreen(
+                refreshKey = refreshKey,
+                onNewFollowUp = { screen = AppScreen.NewFollowUp },
+                onOpenJourney = { followUp ->
+                    selectedFollowUp = followUp
+                    screen = AppScreen.Journey
+                },
+                onOpenNotifications = { screen = AppScreen.Notifications },
+                modifier = Modifier.padding(padding)
+            )
+        }
+
+        AppScreen.Profile -> Scaffold(
+            bottomBar = {
+                LpmTabBar(
+                    currentScreen = screen,
+                    onNavigate = { screen = it }
+                )
+            }
+        ) { padding ->
+            ProfileScreen(
+                onBack = { screen = AppScreen.Home },
+                modifier = Modifier.padding(padding)
+            )
+        }
 
         AppScreen.NewFollowUp -> OnboardingScreen(
             onBack = { screen = AppScreen.Home },
@@ -116,6 +158,40 @@ private fun AppRoot() {
 
         AppScreen.Notifications -> NotificationsScreen(
             onBack = { screen = AppScreen.Home }
+        )
+    }
+}
+
+@Composable
+private fun LpmTabBar(
+    currentScreen: AppScreen,
+    onNavigate: (AppScreen) -> Unit
+) {
+    NavigationBar(
+        containerColor = com.livingpatientmemory.ui.theme.White,
+        tonalElevation = 8.dp
+    ) {
+        NavigationBarItem(
+            icon = { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Outlined.Home, contentDescription = "Home") },
+            label = { Text("Home") },
+            selected = currentScreen == AppScreen.Home,
+            onClick = { onNavigate(AppScreen.Home) },
+            colors = NavigationBarItemDefaults.colors(
+                selectedIconColor = com.livingpatientmemory.ui.theme.Black,
+                unselectedIconColor = com.livingpatientmemory.ui.theme.Gray400,
+                indicatorColor = com.livingpatientmemory.ui.theme.Gray200
+            )
+        )
+        NavigationBarItem(
+            icon = { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Outlined.Person, contentDescription = "Profile") },
+            label = { Text("Profile") },
+            selected = currentScreen == AppScreen.Profile,
+            onClick = { onNavigate(AppScreen.Profile) },
+            colors = NavigationBarItemDefaults.colors(
+                selectedIconColor = com.livingpatientmemory.ui.theme.Black,
+                unselectedIconColor = com.livingpatientmemory.ui.theme.Gray400,
+                indicatorColor = com.livingpatientmemory.ui.theme.Gray200
+            )
         )
     }
 }
