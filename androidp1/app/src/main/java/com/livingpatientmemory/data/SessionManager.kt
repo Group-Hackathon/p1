@@ -8,6 +8,7 @@ object SessionManager {
     private const val KEY_TOKEN = "auth_token"
     private const val KEY_DEVICE_ID = "device_id"
     private const val KEY_PROFILE_ID = "profile_id"
+    private const val KEY_USER_NAME = "user_name"
 
     private lateinit var prefs: SharedPreferences
 
@@ -31,6 +32,15 @@ object SessionManager {
     fun getProfileId(): String? {
         if (!this::prefs.isInitialized) return null
         return prefs.getString(KEY_PROFILE_ID, null)
+    }
+
+    fun saveUserName(name: String) {
+        prefs.edit().putString(KEY_USER_NAME, name).apply()
+    }
+
+    fun getUserName(): String? {
+        if (!this::prefs.isInitialized) return null
+        return prefs.getString(KEY_USER_NAME, null)
     }
 
     fun getOrCreateDeviceId(): String {

@@ -75,9 +75,9 @@ private fun AppRoot() {
     var selectedFollowUp by remember { mutableStateOf<FollowUpUi?>(null) }
     var hasSeenWelcome by remember { mutableStateOf(SessionManager.getToken() != null) }
 
-    LaunchedEffect(Unit) {
-        delay(1400)
+    LaunchedEffect(screen) {
         if (screen == AppScreen.Splash) {
+            delay(1400)
             screen = if (hasSeenWelcome) AppScreen.Home else AppScreen.Welcome
         }
     }

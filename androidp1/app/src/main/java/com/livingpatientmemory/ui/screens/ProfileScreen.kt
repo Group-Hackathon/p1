@@ -33,7 +33,7 @@ fun ProfileScreen(
     var thermometerConnected by remember { mutableStateOf(true) }
     var bpConnected by remember { mutableStateOf(false) }
     var scaleConnected by remember { mutableStateOf(false) }
-    var userName by remember { mutableStateOf("") }
+    var userName by remember { mutableStateOf(com.livingpatientmemory.data.SessionManager.getUserName() ?: "") }
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
 
@@ -78,7 +78,10 @@ fun ProfileScreen(
                         modifier = Modifier.fillMaxWidth(0.8f),
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                        keyboardActions = KeyboardActions(onDone = {
+                            com.livingpatientmemory.data.SessionManager.saveUserName(userName)
+                            focusManager.clearFocus()
+                        }),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = Black,
                             unfocusedBorderColor = Gray200,
