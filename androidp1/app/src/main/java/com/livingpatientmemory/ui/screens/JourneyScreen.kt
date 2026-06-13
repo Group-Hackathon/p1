@@ -15,6 +15,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -37,9 +38,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import com.livingpatientmemory.LpmTopBar
+import com.livingpatientmemory.MainTopBar
 import com.livingpatientmemory.data.api.ApiClient
 import com.livingpatientmemory.data.model.TimelineEventRequest
 import com.livingpatientmemory.data.model.TimelineEventResponse
@@ -55,7 +55,7 @@ private enum class MeasurementStep {
 }
 
 private sealed class TimelineItem {
-    data class PastEvent(val event: TimelineEventResponse) : TimelineItem()
+    data class PastEvent(val userEvent: TimelineEventResponse, val aiEvent: TimelineEventResponse?) : TimelineItem()
     data class FutureDay(val dayNumber: Int, val label: String) : TimelineItem()
 }
 
@@ -114,13 +114,6 @@ fun JourneyScreen(
     val periodName = activeWindowTime?.toString() ?: if (isInitial) "Initial" else "Routine"
 
     val nextWindowName = nextWindowTime?.toString()?.let { "Check-in at $it" } ?: "Next Check-in"
-    val hoursUntil = if (nextWindowTime != null) {
-        if (nextWindowTime.isBefore(now)) {
-            ChronoUnit.HOURS.between(now, LocalTime.MAX) + ChronoUnit.HOURS.between(LocalTime.MIN, nextWindowTime) + 1
-        } else {
-            ChronoUnit.HOURS.between(now, nextWindowTime).coerceAtLeast(1)
-        }
-    } else 1L
 
     LaunchedEffect(followUp.id) {
         while (true) {
@@ -136,7 +129,21 @@ fun JourneyScreen(
 
     val timelineItems = remember(events, followUp) {
         val items = mutableListOf<TimelineItem>()
-        events.forEach { items.add(TimelineItem.PastEvent(it)) }
+        var i = 0
+        while (i < events.size) {
+            val event = events[i]
+            if (event.type == "user") {
+                var aiEvent: TimelineEventResponse? = null
+                if (i + 1 < events.size && events[i+1].type == "ai") {
+                    aiEvent = events[i+1]
+                    i++
+                }
+                items.add(TimelineItem.PastEvent(event, aiEvent))
+            } else if (event.type == "ai") {
+                items.add(TimelineItem.PastEvent(event, null))
+            }
+            i++
+        }
         
         val daysDone = followUp.totalDays - followUp.daysRemaining
         val startFutureDay = if (daysDone < 1) 1 else daysDone + 1
@@ -149,7 +156,7 @@ fun JourneyScreen(
 
     Box(modifier = modifier.fillMaxSize().background(White)) {
         Scaffold(
-            topBar = { LpmTopBar(title = followUp.title, onOpenDrawer = onOpenDrawer) },
+            topBar = { MainTopBar(title = followUp.title, onOpenDrawer = onOpenDrawer) },
             containerColor = Color.Transparent,
             modifier = Modifier.fillMaxSize()
         ) { padding ->
@@ -173,8 +180,8 @@ fun JourneyScreen(
                         contentPadding = PaddingValues(vertical = 16.dp)
                     ) {
                         item {
-                            JourneySummary(followUp = followUp)
-                            TopInfoCard(followUp, periodName, isMeasurementWindow, nextWindowName, hoursUntil)
+                            JourneySummary(followUp = followUp, events = events)
+                            TopInfoCard(followUp, periodName, isMeasurementWindow, nextWindowName, nextWindowTime)
                         }
 
                         if (events.isEmpty()) {
@@ -186,8 +193,21 @@ fun JourneyScreen(
                         items(timelineItems) { item ->
                             when (item) {
                                 is TimelineItem.PastEvent -> {
-                                    val isRight = item.event.type == "user"
-                                    CentralTimelineEvent(item.event, isRight)
+                                    CentralTimelineEvent(
+                                        userEvent = item.userEvent,
+                                        aiEvent = item.aiEvent,
+                                        onDelete = { eventId ->
+                                            coroutineScope.launch {
+                                                try {
+                                                    ApiClient.apiService.deleteTimelineEvent(followUp.id, eventId)
+                                                    val remoteEvents = ApiClient.apiService.getTimeline(followUp.id)
+                                                    events = remoteEvents.sortedBy { it.created_at }
+                                                } catch (e: Exception) {
+                                                    e.printStackTrace()
+                                                }
+                                            }
+                                        }
+                                    )
                                 }
                                 is TimelineItem.FutureDay -> {
                                     FutureTimelineEvent(item.dayNumber, item.label)
@@ -247,19 +267,31 @@ private fun EmptyStateWelcome() {
 }
 
 @Composable
-private fun JourneySummary(followUp: FollowUpUi) {
+private fun JourneySummary(followUp: FollowUpUi, events: List<TimelineEventResponse>) {
+    val expectedMeasurements = followUp.totalDays * (followUp.schedule?.size ?: 1)
+    val actualMeasurements = events.count { it.type == "user" && !it.date_label.contains("Question") }
+    val progressPercent = if (expectedMeasurements > 0) {
+        ((actualMeasurements.toFloat() / expectedMeasurements.toFloat()) * 100).toInt().coerceAtMost(100)
+    } else 0
+    val progressFloat = if (expectedMeasurements > 0) {
+        (actualMeasurements.toFloat() / expectedMeasurements.toFloat()).coerceAtMost(1f)
+    } else 0f
+
+    val apptDate = java.time.LocalDate.now().plusDays(followUp.daysRemaining.toLong())
+    val formattedApptDate = apptDate.format(java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.ENGLISH))
+
     LpmCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
         Column(modifier = Modifier.padding(20.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                SummaryItem(value = "${followUp.totalDays - followUp.daysRemaining}", label = "Days done")
+                SummaryItem(value = formattedApptDate, label = "Appt Date")
                 SummaryItem(value = "${followUp.daysRemaining}", label = "Days left")
-                SummaryItem(value = "${(followUp.progress * 100).toInt()}%", label = "Complete")
+                SummaryItem(value = "$progressPercent%", label = "Complete")
             }
             Spacer(modifier = Modifier.height(16.dp))
-            LpmProgressBar(progress = followUp.progress)
+            LpmProgressBar(progress = progressFloat)
         }
     }
 }
@@ -267,13 +299,34 @@ private fun JourneySummary(followUp: FollowUpUi) {
 @Composable
 private fun SummaryItem(value: String, label: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = Black)
+        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = Black)
         Text(label, style = MaterialTheme.typography.labelMedium, color = Gray400)
     }
 }
 
 @Composable
-private fun TopInfoCard(followUp: FollowUpUi, periodName: String, isWindow: Boolean, nextWindowName: String, hoursUntil: Long) {
+private fun TopInfoCard(followUp: FollowUpUi, periodName: String, isWindow: Boolean, nextWindowName: String, nextWindowTime: LocalTime?) {
+    var countdownText by remember { mutableStateOf("") }
+    
+    LaunchedEffect(nextWindowTime, isWindow) {
+        if (nextWindowTime == null || isWindow) {
+            countdownText = ""
+            return@LaunchedEffect
+        }
+        while(true) {
+            val now = LocalTime.now()
+            var durationSeconds = java.time.temporal.ChronoUnit.SECONDS.between(now, nextWindowTime)
+            if (durationSeconds < 0) {
+                durationSeconds += 24 * 3600
+            }
+            val hours = durationSeconds / 3600
+            val minutes = (durationSeconds % 3600) / 60
+            val seconds = durationSeconds % 60
+            countdownText = String.format(java.util.Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+
     LpmCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -301,7 +354,8 @@ private fun TopInfoCard(followUp: FollowUpUi, periodName: String, isWindow: Bool
             val actionText = if (isWindow) {
                 "Next Action: $periodName Check-in (Now)"
             } else {
-                "Next Action: $nextWindowName (in $hoursUntil hours)"
+                if (nextWindowTime != null) "Next Action: $nextWindowName (in $countdownText)"
+                else "Next Action: Check-in (Pending)"
             }
             
             Text(
@@ -314,38 +368,44 @@ private fun TopInfoCard(followUp: FollowUpUi, periodName: String, isWindow: Bool
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun CentralTimelineEvent(event: TimelineEventResponse, isRight: Boolean) {
-    val dateLabel = event.date_label.ifEmpty { "ASSISTANT" }.uppercase()
+private fun CentralTimelineEvent(userEvent: TimelineEventResponse, aiEvent: TimelineEventResponse?, onDelete: (String) -> Unit) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete Record") },
+            text = { Text("Are you sure you want to delete this record?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    onDelete(userEvent.id)
+                }) { Text("Delete", color = Color.Red) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
 
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (!isRight) {
-            // Assistant (Left)
-            Column(
-                modifier = Modifier.weight(0.45f).padding(end = 12.dp, start = 20.dp),
-                horizontalAlignment = Alignment.End
-            ) {
-                Text(dateLabel, style = MaterialTheme.typography.labelSmall, color = Gray400)
-                Spacer(modifier = Modifier.height(4.dp))
-                Box(
-                    modifier = Modifier
-                        .background(White, RoundedCornerShape(12.dp))
-                        .border(1.dp, Gray200, RoundedCornerShape(12.dp))
-                        .padding(12.dp)
-                ) {
-                    Text(event.content, style = MaterialTheme.typography.bodySmall, color = Black)
-                }
-            }
-            Box(modifier = Modifier.weight(0.1f), contentAlignment = Alignment.Center) {
-                Box(modifier = Modifier.size(10.dp).background(Black, CircleShape))
-            }
-            Spacer(modifier = Modifier.weight(0.45f))
-        } else {
-            // User (Right)
+    val formatTime = { timeStr: String ->
+        runCatching {
+            val zdt = java.time.ZonedDateTime.parse(timeStr)
+            zdt.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+        }.getOrDefault("")
+    }
+
+    // Wrap the entire interaction block
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
+        // --- USER EVENT ---
+        val userDateLabel = userEvent.date_label.ifEmpty { "USER" }.uppercase()
+        val userTime = formatTime(userEvent.created_at)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Spacer(modifier = Modifier.weight(0.45f))
             Box(modifier = Modifier.weight(0.1f), contentAlignment = Alignment.Center) {
                 Box(modifier = Modifier.size(10.dp).background(Black, CircleShape))
@@ -354,16 +414,55 @@ private fun CentralTimelineEvent(event: TimelineEventResponse, isRight: Boolean)
                 modifier = Modifier.weight(0.45f).padding(start = 12.dp, end = 20.dp),
                 horizontalAlignment = Alignment.Start
             ) {
-                Text(dateLabel, style = MaterialTheme.typography.labelSmall, color = Gray400)
+                Text(if (userTime.isNotEmpty()) "$userDateLabel • $userTime" else userDateLabel, style = MaterialTheme.typography.labelSmall, color = Gray400)
                 Spacer(modifier = Modifier.height(4.dp))
                 Box(
                     modifier = Modifier
                         .background(White, RoundedCornerShape(12.dp))
                         .border(1.dp, Gray200, RoundedCornerShape(12.dp))
                         .padding(12.dp)
+                        .combinedClickable(
+                            onClick = {},
+                            onLongClick = { if (userEvent.type == "user") showDeleteConfirm = true }
+                        )
                 ) {
-                    Text(event.content, style = MaterialTheme.typography.bodySmall, color = Black)
+                    Text(userEvent.content, style = MaterialTheme.typography.bodySmall, color = Black)
                 }
+            }
+        }
+
+        // --- AI EVENT ---
+        if (aiEvent != null) {
+            val aiDateLabel = aiEvent.date_label.ifEmpty { "ASSISTANT" }.uppercase()
+            val aiTime = formatTime(aiEvent.created_at)
+            
+            // Connection line if we want visual link between the two boxes
+            Row(modifier = Modifier.fillMaxWidth().height(16.dp)) {}
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(0.45f).padding(end = 12.dp, start = 20.dp),
+                    horizontalAlignment = Alignment.End
+                ) {
+                    Text(if (aiTime.isNotEmpty()) "$aiDateLabel • $aiTime" else aiDateLabel, style = MaterialTheme.typography.labelSmall, color = Gray400)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(White, RoundedCornerShape(12.dp))
+                            .border(1.dp, Gray200, RoundedCornerShape(12.dp))
+                            .padding(12.dp)
+                    ) {
+                        Text(aiEvent.content, style = MaterialTheme.typography.bodySmall, color = Black)
+                    }
+                }
+                Box(modifier = Modifier.weight(0.1f), contentAlignment = Alignment.Center) {
+                    Box(modifier = Modifier.size(10.dp).background(Color(0xFF4CAF50), CircleShape)) // Green dot
+                }
+                Spacer(modifier = Modifier.weight(0.45f))
             }
         }
     }
@@ -445,7 +544,7 @@ private fun BottomChatAndActions(
                                     try {
                                         ApiClient.apiService.postTimelineEvent(
                                             followUp.id,
-                                            TimelineEventRequest(content = text.trim(), date_label = "Now")
+                                            TimelineEventRequest(content = text.trim(), date_label = "Question")
                                         )
                                         text = ""
                                     } catch (e: Exception) {
@@ -595,11 +694,33 @@ private fun FocusModeForm(followUp: FollowUpUi, periodName: String, onClose: () 
                             MeasurementStep.Temperature -> {
                                 Column {
                                     var temp by remember { mutableStateOf("") }
+                                    Text("Quick Select", style = MaterialTheme.typography.bodySmall, color = Gray600)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        listOf("36.5", "37.0", "37.5", "38.0").forEach { preset ->
+                                            androidx.compose.material3.FilterChip(
+                                                selected = temp == preset,
+                                                onClick = { temp = preset },
+                                                label = { Text("$preset°") },
+                                                colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = Black,
+                                                    selectedLabelColor = White
+                                                )
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    
                                     OutlinedTextField(
                                         value = temp,
                                         onValueChange = { temp = it },
-                                        label = { Text("Temperature (°C)") },
-                                        modifier = Modifier.fillMaxWidth()
+                                        label = { Text("Or enter specific (°C)") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
                                     )
                                     Spacer(modifier = Modifier.height(24.dp))
                                     LpmPrimaryButton("Next", onClick = {

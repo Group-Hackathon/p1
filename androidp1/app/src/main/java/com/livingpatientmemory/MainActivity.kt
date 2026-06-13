@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -21,6 +22,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.AddCircle
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalDrawerSheet
@@ -125,35 +127,45 @@ private fun AppRoot() {
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Spacer(modifier = Modifier.height(24.dp))
+                    // Profile Header
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                            .padding(16.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(com.livingpatientmemory.ui.theme.Gray200)
+                            .clickable {
+                                screen = AppScreen.Profile
+                                scope.launch { drawerState.close() }
+                            }
+                            .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "MY TRACKINGS",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Gray400,
-                            letterSpacing = 1.sp
-                        )
-                        IconButton(onClick = {
-                            screen = AppScreen.Profile
-                            scope.launch { drawerState.close() }
-                        }) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(Black),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Outlined.Person, contentDescription = "Profile", tint = White, modifier = Modifier.size(20.dp))
-                            }
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Black),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("P", color = White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("Patient", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Black)
+                            Text("View profile", fontSize = 12.sp, color = com.livingpatientmemory.ui.theme.Gray600)
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "MY TRACKINGS",
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = com.livingpatientmemory.ui.theme.Gray400,
+                        letterSpacing = 1.sp
+                    )
                     
                     LazyColumn(modifier = Modifier.weight(1f)) {
                         items(followUps) { followUp ->
@@ -224,9 +236,11 @@ private fun AppRoot() {
 
             AppScreen.Home -> Scaffold(
                 topBar = {
-                    LpmTopBar(
+                    MainTopBar(
                         title = "P1",
-                        onOpenDrawer = { scope.launch { drawerState.open() } }
+                        onOpenDrawer = { scope.launch { drawerState.open() } },
+                        hasPendingTasks = false, // could be dynamic later
+                        onOpenNotifications = { screen = AppScreen.Notifications }
                     )
                 }
             ) { padding ->
@@ -244,7 +258,7 @@ private fun AppRoot() {
 
             AppScreen.Profile -> Scaffold(
                 topBar = {
-                    LpmTopBar(
+                    MainTopBar(
                         title = "Profile",
                         onOpenDrawer = { scope.launch { drawerState.open() } }
                     )
@@ -307,15 +321,35 @@ private fun AppRoot() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LpmTopBar(
+fun MainTopBar(
     title: String,
-    onOpenDrawer: () -> Unit
+    onOpenDrawer: () -> Unit,
+    hasPendingTasks: Boolean = false,
+    onOpenNotifications: (() -> Unit)? = null
 ) {
     androidx.compose.material3.TopAppBar(
         title = { Text(title, fontWeight = FontWeight.Bold, fontSize = 22.sp, letterSpacing = (-1).sp) },
         navigationIcon = {
             androidx.compose.material3.IconButton(onClick = onOpenDrawer) {
                 Icon(Icons.Outlined.Menu, contentDescription = "Menu")
+            }
+        },
+        actions = {
+            if (onOpenNotifications != null) {
+                Box {
+                    androidx.compose.material3.IconButton(onClick = onOpenNotifications) {
+                        Icon(Icons.Outlined.Notifications, contentDescription = "Notifications", tint = com.livingpatientmemory.ui.theme.Black)
+                    }
+                    if (hasPendingTasks) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .align(Alignment.TopEnd)
+                                .padding(top = 12.dp, end = 12.dp)
+                                .background(com.livingpatientmemory.ui.theme.Black, CircleShape)
+                        )
+                    }
+                }
             }
         },
         colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(

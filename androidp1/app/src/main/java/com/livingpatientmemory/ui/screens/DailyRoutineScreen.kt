@@ -14,6 +14,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,6 +30,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -233,40 +237,67 @@ private fun VitalsStep(rules: FollowUpRules?, onContinue: () -> Unit) {
     var hrValue by remember { mutableStateOf("") }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        LpmSectionTitle("Vitals Check-in")
-        Spacer(modifier = Modifier.height(24.dp))
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+        ) {
+            LpmSectionTitle("Vitals Check-in")
+            Spacer(modifier = Modifier.height(24.dp))
 
-        if (rules?.temperature == true) {
-            OutlinedTextField(
-                value = tempValue,
-                onValueChange = { tempValue = it },
-                label = { Text("Temperature (°C)") },
-                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-                singleLine = true
-            )
+            if (rules?.temperature == true) {
+                Text("Quick Select Temperature", style = MaterialTheme.typography.bodySmall, color = Gray600)
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    listOf("36.5", "37.0", "37.5", "38.0").forEach { temp ->
+                        FilterChip(
+                            selected = tempValue == temp,
+                            onClick = { tempValue = temp },
+                            label = { Text("$temp°") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Black,
+                                selectedLabelColor = White
+                            )
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = tempValue,
+                    onValueChange = { tempValue = it },
+                    label = { Text("Or enter specific (°C)") },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+            }
+
+            if (rules?.bloodPressure == true) {
+                OutlinedTextField(
+                    value = bpValue,
+                    onValueChange = { bpValue = it },
+                    label = { Text("Blood Pressure (mmHg)") },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+            }
+
+            if (rules?.smartwatch == true) {
+                OutlinedTextField(
+                    value = hrValue,
+                    onValueChange = { hrValue = it },
+                    label = { Text("Heart Rate (bpm)") },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+            }
         }
-
-        if (rules?.bloodPressure == true) {
-            OutlinedTextField(
-                value = bpValue,
-                onValueChange = { bpValue = it },
-                label = { Text("Blood Pressure (mmHg)") },
-                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-                singleLine = true
-            )
-        }
-
-        if (rules?.smartwatch == true) {
-            OutlinedTextField(
-                value = hrValue,
-                onValueChange = { hrValue = it },
-                label = { Text("Heart Rate (bpm)") },
-                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-                singleLine = true
-            )
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
+        
         LpmPrimaryButton(text = "Save", onClick = onContinue)
         Spacer(modifier = Modifier.height(24.dp))
     }

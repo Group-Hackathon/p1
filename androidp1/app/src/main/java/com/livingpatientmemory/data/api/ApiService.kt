@@ -46,4 +46,10 @@ interface ApiService {
         @Path("id") subscriptionId: String,
         @Body request: TimelineEventRequest
     ): TimelineEventResponse
+
+    @DELETE("api/v1/subscriptions/{id}/timeline/{eventId}")
+    suspend fun deleteTimelineEvent(
+        @Path("id") subscriptionId: String,
+        @Path("eventId") eventId: String
+    )
 }

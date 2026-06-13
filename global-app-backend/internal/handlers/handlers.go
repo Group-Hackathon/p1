@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -582,13 +584,46 @@ func (h *Handler) PostTimelineEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use a static, fast acknowledgement response
+	// Generate AI response based on context if it's a chat question
 	aiReply := "Your measurements have been successfully saved."
+	
+	if req.DateLabel == "Question" && h.gemini != nil {
+		var paramsJSON []byte
+		h.db.QueryRow(r.Context(), `SELECT parameters_json FROM subscriptions WHERE id = $1`, subID).Scan(&paramsJSON)
+		
+		var history string
+		rows, _ := h.db.Query(r.Context(), `SELECT type, date_label, content FROM timeline_events WHERE subscription_id = $1 ORDER BY created_at DESC LIMIT 10`, subID)
+		var histEvents []string
+		for rows.Next() {
+			var t, l, c string
+			if err := rows.Scan(&t, &l, &c); err == nil {
+				histEvents = append([]string{fmt.Sprintf("[%s] %s: %s", t, l, c)}, histEvents...)
+			}
+		}
+		rows.Close()
+		history = strings.Join(histEvents, "\n")
+		
+		prompt := fmt.Sprintf(`You are a medical assistant chatbot for an active tracking protocol.
+If the user asks questions outside the tracking scope or asks for a diagnosis, politely decline and tell them to consult a doctor. Do not give medical advice.
+Current Date and Time: %s
+Tracking Parameters: %s
+Recent History:
+%s
+User's Question: %s`, time.Now().Format(time.RFC1123), string(paramsJSON), history, req.Content)
+		
+		// Use a detached context so if the client disconnects due to timeout, we still save the AI reply.
+		bgCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		if resp, err := h.gemini.GenerateText(bgCtx, prompt); err == nil {
+			aiReply = strings.TrimSpace(resp)
+		}
+	}
 
 	// Insert AI Event
 	var aiID string
 	var aiCreatedAt time.Time
-	err = h.db.QueryRow(r.Context(),
+	// Use background context here as well for safety
+	err = h.db.QueryRow(context.Background(),
 		`INSERT INTO timeline_events (subscription_id, type, date_label, content) VALUES ($1, 'ai', $2, $3) RETURNING id, created_at`,
 		subID, req.DateLabel+" - Assistant", aiReply,
 	).Scan(&aiID, &aiCreatedAt)
@@ -604,4 +639,49 @@ func (h *Handler) PostTimelineEvent(w http.ResponseWriter, r *http.Request) {
 		Content:        aiReply,
 		CreatedAt:      aiCreatedAt.Format(time.RFC3339),
 	})
+}
+
+// DeleteTimelineEvent deletes a specific user event and its automatically generated AI response.
+func (h *Handler) DeleteTimelineEvent(w http.ResponseWriter, r *http.Request) {
+	subID := chi.URLParam(r, "id")
+	eventID := chi.URLParam(r, "eventId")
+	userID := r.Context().Value(auth.UserIDKey).(string)
+
+	// Verify ownership
+	var count int
+	h.db.QueryRow(r.Context(),
+		`SELECT COUNT(*) FROM subscriptions s JOIN profiles p ON s.profile_id = p.id WHERE s.id = $1 AND p.user_id = $2`,
+		subID, userID,
+	).Scan(&count)
+	if count == 0 {
+		http.Error(w, `{"error":"subscription not found"}`, http.StatusNotFound)
+		return
+	}
+
+	// Fetch the user event to find its creation time
+	var createdAt time.Time
+	err := h.db.QueryRow(r.Context(), `SELECT created_at FROM timeline_events WHERE id = $1 AND subscription_id = $2 AND type = 'user'`, eventID, subID).Scan(&createdAt)
+	if err != nil {
+		http.Error(w, `{"error":"event not found or not a user event"}`, http.StatusNotFound)
+		return
+	}
+
+	// Delete the user event
+	_, err = h.db.Exec(r.Context(), `DELETE FROM timeline_events WHERE id = $1`, eventID)
+	if err != nil {
+		http.Error(w, `{"error":"failed to delete user event"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// Also delete the AI event created immediately after (the very next AI event)
+	h.db.Exec(r.Context(), `
+		DELETE FROM timeline_events 
+		WHERE id = (
+			SELECT id FROM timeline_events 
+			WHERE subscription_id = $1 AND type = 'ai' AND created_at >= $2 
+			ORDER BY created_at ASC 
+			LIMIT 1
+		)`, subID, createdAt)
+
+	w.WriteHeader(http.StatusNoContent)
 }

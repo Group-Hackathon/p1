@@ -140,6 +140,7 @@ func main() {
 		// Timeline
 		r.Get("/api/v1/subscriptions/{id}/timeline", h.GetTimeline)
 		r.Post("/api/v1/subscriptions/{id}/timeline", h.PostTimelineEvent)
+		r.Delete("/api/v1/subscriptions/{id}/timeline/{eventId}", h.DeleteTimelineEvent)
 	})
 
 	// Start server

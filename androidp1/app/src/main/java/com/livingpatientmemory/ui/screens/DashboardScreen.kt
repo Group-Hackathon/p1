@@ -1,6 +1,7 @@
 package com.livingpatientmemory.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -86,230 +87,106 @@ fun DashboardScreen(
     )
 
     Scaffold(
-        topBar = {
-            DashboardHeader(
-                hasPendingTasks = false,
-                onOpenNotifications = onOpenNotifications
-            )
-        },
         containerColor = White,
         modifier = modifier
     ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
+        if (isLoading) {
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .fillMaxSize()
+                    .padding(padding),
+                contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "Welcome to Living Patient Memory",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Black,
-                    color = Black,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = "You have no active trackings selected. Select a conversation from the top right menu, or start a new tracking protocol.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Gray600,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 24.sp
-                )
-                Spacer(modifier = Modifier.height(32.dp))
-                LpmPrimaryButton(text = "Start a new tracking", onClick = onNewFollowUp)
+                androidx.compose.material3.CircularProgressIndicator(color = Black)
             }
-        }
-    }
-}
-
-@Composable
-private fun DashboardHeader(
-    hasPendingTasks: Boolean,
-    onOpenNotifications: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = "P1",
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = (-1).sp,
-            color = Black
-        )
-        Box {
-            IconButton(onClick = onOpenNotifications) {
-                Icon(
-                    Icons.Outlined.Notifications,
-                    contentDescription = "Notifications",
-                    tint = Black
-                )
-            }
-            if (hasPendingTasks) {
-                Box(
+        } else if (activeFollowUps.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
                     modifier = Modifier
-                        .size(8.dp)
-                        .align(Alignment.TopEnd)
-                        .padding(top = 2.dp, end = 2.dp)
-                        .background(Black, CircleShape)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TodayCard(count: Int) {
-    LpmCard {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Text(
-                text = "TODAY",
-                style = MaterialTheme.typography.labelMedium,
-                color = Gray400,
-                letterSpacing = 1.5.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = if (count == 1) "1 routine to complete" else "$count routines to complete",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = Black
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Photo and check-in expected before 8:00 PM",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Gray600
-            )
-        }
-    }
-}
-
-@Composable
-private fun FollowUpCard(
-    followUp: FollowUpUi,
-    onClick: () -> Unit,
-    onDelete: () -> Unit
-) {
-    LpmCard(onClick = onClick) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
+                        .fillMaxWidth()
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     Text(
-                        text = followUp.title,
+                        text = "Welcome to Living Patient Memory",
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Black
+                        fontWeight = FontWeight.Black,
+                        color = Black,
+                        textAlign = TextAlign.Center
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = if (followUp.isActive) {
-                            "Day ${followUp.totalDays - followUp.daysRemaining + 1} of ${followUp.totalDays}"
-                        } else {
-                            "Completed"
-                        },
+                        text = "You have no active trackings selected. Select a conversation from the top right menu, or start a new tracking protocol.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Gray600
+                        color = Gray600,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 24.sp
                     )
+                    Spacer(modifier = Modifier.height(32.dp))
+                    LpmPrimaryButton(text = "Start a new tracking", onClick = onNewFollowUp)
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onDelete) {
-                        Icon(
-                            Icons.Outlined.Delete,
-                            contentDescription = "Delete",
-                            tint = Gray400
-                        )
+            }
+        } else {
+            androidx.compose.foundation.lazy.LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
+            ) {
+                items(activeFollowUps) { followUp ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenJourney(followUp) }
+                            .padding(horizontal = 24.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(Gray200, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = followUp.title.take(1).uppercase(),
+                                fontWeight = FontWeight.Bold,
+                                color = Gray600
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text(
+                                text = followUp.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Black
+                            )
+                            Text(
+                                text = "Active tracking protocol",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Gray400
+                            )
+                        }
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    DayBadge(
-                        current = followUp.totalDays - followUp.daysRemaining + 1,
-                        total = followUp.totalDays,
-                        isActive = followUp.isActive
+                    androidx.compose.material3.Divider(
+                        color = Gray200,
+                        thickness = 0.5.dp,
+                        modifier = Modifier.padding(horizontal = 24.dp)
                     )
                 }
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
-            LpmProgressBar(progress = followUp.progress)
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = if (followUp.isActive) "View plan and today's routine" else "View summary",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = Black
-            )
         }
     }
 }
 
-@Composable
-private fun DayBadge(current: Int, total: Int, isActive: Boolean) {
-    Box(
-        modifier = Modifier
-            .size(48.dp)
-            .background(if (isActive) Black else Gray200, CircleShape),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = if (isActive) "$current" else "End",
-            color = if (isActive) White else Gray600,
-            fontWeight = FontWeight.Bold,
-            fontSize = 16.sp,
-            textAlign = TextAlign.Center
-        )
-    }
-}
 
-@Composable
-private fun EmptyFollowUps(onNewFollowUp: () -> Unit) {
-    LpmCard {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Icon(
-                Icons.Outlined.DateRange,
-                contentDescription = null,
-                tint = Gray400,
-                modifier = Modifier.size(40.dp)
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "No active follow-up",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = Black
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Describe what you want to track and we will build your daily protocol, ready for your next appointment.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Gray600,
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(20.dp))
-            LpmPrimaryButton(text = "Start a follow-up", onClick = onNewFollowUp)
-        }
-    }
-}
+
+
 
 @Composable
 fun ComingSoonDialog(onDismiss: () -> Unit) {
