@@ -77,7 +77,7 @@ func main() {
 		}
 	}()
 
-	h := handlers.New(pool, authService)
+	h := handlers.New(pool, authService, geminiClient)
 
 	// Router
 	r := chi.NewRouter()
@@ -135,6 +135,11 @@ func main() {
 		// Subscriptions / Follow-ups
 		r.Post("/api/v1/subscriptions", h.CreateSubscription)
 		r.Get("/api/v1/subscriptions", h.ListSubscriptions)
+		r.Delete("/api/v1/subscriptions/{id}", h.DeleteSubscription)
+
+		// Timeline
+		r.Get("/api/v1/subscriptions/{id}/timeline", h.GetTimeline)
+		r.Post("/api/v1/subscriptions/{id}/timeline", h.PostTimelineEvent)
 	})
 
 	// Start server

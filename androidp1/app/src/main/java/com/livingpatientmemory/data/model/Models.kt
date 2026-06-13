@@ -92,3 +92,17 @@ data class PlanItem(
     val title: String,
     val description: String
 )
+
+data class TimelineEventRequest(
+    val content: String,
+    val date_label: String
+)
+
+data class TimelineEventResponse(
+    val id: String,
+    val subscription_id: String,
+    val type: String,
+    val date_label: String,
+    val content: String,
+    val created_at: String
+)

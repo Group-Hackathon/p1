@@ -17,13 +17,14 @@ import (
 
 // Handler holds dependencies for HTTP handlers.
 type Handler struct {
-	db   *pgxpool.Pool
-	auth *auth.Service
+	db     *pgxpool.Pool
+	auth   *auth.Service
+	gemini *gemini.Client
 }
 
 // New creates a new Handler.
-func New(db *pgxpool.Pool, authService *auth.Service) *Handler {
-	return &Handler{db: db, auth: authService}
+func New(db *pgxpool.Pool, authService *auth.Service, geminiClient *gemini.Client) *Handler {
+	return &Handler{db: db, auth: authService, gemini: geminiClient}
 }
 
 // --- Auth Handlers ---
@@ -449,4 +450,122 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Timeline Handlers ---
+
+type timelineEventRequest struct {
+	Content   string `json:"content"`
+	DateLabel string `json:"date_label"` // e.g. 'Day 1 - Evening'
+}
+
+type timelineEventResponse struct {
+	ID             string `json:"id"`
+	SubscriptionID string `json:"subscription_id"`
+	Type           string `json:"type"`
+	DateLabel      string `json:"date_label"`
+	Content        string `json:"content"`
+	CreatedAt      string `json:"created_at"`
+}
+
+// GetTimeline fetches the vertical timeline for a subscription.
+func (h *Handler) GetTimeline(w http.ResponseWriter, r *http.Request) {
+	subID := chi.URLParam(r, "id")
+	userID := r.Context().Value(auth.UserIDKey).(string)
+
+	// Verify ownership
+	var count int
+	h.db.QueryRow(r.Context(),
+		`SELECT COUNT(*) FROM subscriptions s JOIN profiles p ON s.profile_id = p.id WHERE s.id = $1 AND p.user_id = $2`,
+		subID, userID,
+	).Scan(&count)
+	if count == 0 {
+		http.Error(w, `{"error":"subscription not found"}`, http.StatusNotFound)
+		return
+	}
+
+	rows, err := h.db.Query(r.Context(),
+		`SELECT id, subscription_id, type, date_label, content, created_at FROM timeline_events WHERE subscription_id = $1 ORDER BY created_at ASC`,
+		subID,
+	)
+	if err != nil {
+		http.Error(w, `{"error":"failed to fetch timeline"}`, http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	events := []timelineEventResponse{}
+	for rows.Next() {
+		var e timelineEventResponse
+		var t time.Time
+		if err := rows.Scan(&e.ID, &e.SubscriptionID, &e.Type, &e.DateLabel, &e.Content, &t); err == nil {
+			e.CreatedAt = t.Format(time.RFC3339)
+			events = append(events, e)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(events)
+}
+
+// PostTimelineEvent adds a new event and simulates AI response.
+func (h *Handler) PostTimelineEvent(w http.ResponseWriter, r *http.Request) {
+	subID := chi.URLParam(r, "id")
+	userID := r.Context().Value(auth.UserIDKey).(string)
+
+	var req timelineEventRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Verify ownership
+	var count int
+	h.db.QueryRow(r.Context(),
+		`SELECT COUNT(*) FROM subscriptions s JOIN profiles p ON s.profile_id = p.id WHERE s.id = $1 AND p.user_id = $2`,
+		subID, userID,
+	).Scan(&count)
+	if count == 0 {
+		http.Error(w, `{"error":"subscription not found"}`, http.StatusNotFound)
+		return
+	}
+
+	// Insert User Event
+	_, err := h.db.Exec(r.Context(),
+		`INSERT INTO timeline_events (subscription_id, type, date_label, content) VALUES ($1, 'user', $2, $3)`,
+		subID, req.DateLabel, req.Content,
+	)
+	if err != nil {
+		http.Error(w, `{"error":"failed to save event"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// Simulate AI Response with Gemini if available, else static
+	aiReply := "I've noted that down in your medical journal. Continue following your protocol."
+	if h.gemini != nil {
+		prompt := "You are a medical assistant monitoring a patient. The patient just reported: " + req.Content + ".\nReply with a short, empathetic acknowledgement confirming the data was saved. Do not provide medical advice. Keep it under 2 sentences."
+		if resp, err := h.gemini.GenerateText(r.Context(), prompt); err == nil {
+			aiReply = strings.TrimSpace(resp)
+		}
+	}
+
+	// Insert AI Event
+	var aiID string
+	var aiCreatedAt time.Time
+	err = h.db.QueryRow(r.Context(),
+		`INSERT INTO timeline_events (subscription_id, type, date_label, content) VALUES ($1, 'ai', $2, $3) RETURNING id, created_at`,
+		subID, req.DateLabel+" - Assistant", aiReply,
+	).Scan(&aiID, &aiCreatedAt)
+
+	// Return the AI event as confirmation
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(timelineEventResponse{
+		ID:             aiID,
+		SubscriptionID: subID,
+		Type:           "ai",
+		DateLabel:      req.DateLabel + " - Assistant",
+		Content:        aiReply,
+		CreatedAt:      aiCreatedAt.Format(time.RFC3339),
+	})
 }

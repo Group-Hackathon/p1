@@ -37,4 +37,13 @@ interface ApiService {
 
     @DELETE("api/v1/auth/delete")
     suspend fun deleteAccount()
+
+    @GET("api/v1/subscriptions/{id}/timeline")
+    suspend fun getTimeline(@Path("id") subscriptionId: String): List<TimelineEventResponse>
+
+    @POST("api/v1/subscriptions/{id}/timeline")
+    suspend fun postTimelineEvent(
+        @Path("id") subscriptionId: String,
+        @Body request: TimelineEventRequest
+    ): TimelineEventResponse
 }

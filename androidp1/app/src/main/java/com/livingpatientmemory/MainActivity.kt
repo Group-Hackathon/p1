@@ -24,6 +24,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,85 +84,121 @@ private fun AppRoot() {
     var selectedFollowUp by remember { mutableStateOf<FollowUpUi?>(null) }
     var hasSeenWelcome by remember { mutableStateOf(SessionManager.getToken() != null) }
 
-    LaunchedEffect(screen) {
-        if (screen == AppScreen.Splash) {
-            delay(1400)
-            screen = if (hasSeenWelcome) AppScreen.Home else AppScreen.Welcome
-        }
-    }
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
 
-    when (screen) {
-        AppScreen.Splash -> SplashScreen()
-
-        AppScreen.Welcome -> WelcomeScreen(
-            onStartTracking = {
-                hasSeenWelcome = true
-                screen = AppScreen.NewFollowUp
-            },
-            onGoToHome = {
-                hasSeenWelcome = true
-                screen = AppScreen.Home
-            }
-        )
-
-        AppScreen.Home -> Scaffold(
-            bottomBar = {
-                LpmTabBar(
-                    currentScreen = screen,
-                    onNavigate = { screen = it }
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = screen == AppScreen.Home || screen == AppScreen.Journey || screen == AppScreen.Profile,
+        drawerContent = {
+            ModalDrawerSheet(
+                containerColor = com.livingpatientmemory.ui.theme.White
+            ) {
+                Spacer(modifier = Modifier.height(24.dp))
+                Text(
+                    text = "LIVING PATIENT MEMORY",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Gray400,
+                    modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp),
+                    letterSpacing = 1.sp
+                )
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Outlined.Home, contentDescription = null) },
+                    label = { Text("Active Trackings") },
+                    selected = screen == AppScreen.Home,
+                    onClick = {
+                        screen = AppScreen.Home
+                        scope.launch { drawerState.close() }
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                )
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Outlined.Person, contentDescription = null) },
+                    label = { Text("My Profile") },
+                    selected = screen == AppScreen.Profile,
+                    onClick = {
+                        screen = AppScreen.Profile
+                        scope.launch { drawerState.close() }
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
             }
-        ) { padding ->
-            DashboardScreen(
-                refreshKey = refreshKey,
-                onNewFollowUp = { screen = AppScreen.NewFollowUp },
-                onOpenJourney = { followUp ->
-                    selectedFollowUp = followUp
-                    screen = AppScreen.Journey
-                },
-                onOpenNotifications = { screen = AppScreen.Notifications },
-                modifier = Modifier.padding(padding)
-            )
         }
+    ) {
+        when (screen) {
+            AppScreen.Splash -> SplashScreen()
 
-        AppScreen.Profile -> Scaffold(
-            bottomBar = {
-                LpmTabBar(
-                    currentScreen = screen,
-                    onNavigate = { screen = it }
+            AppScreen.Welcome -> WelcomeScreen(
+                onStartTracking = {
+                    hasSeenWelcome = true
+                    screen = AppScreen.NewFollowUp
+                },
+                onGoToHome = {
+                    hasSeenWelcome = true
+                    screen = AppScreen.Home
+                }
+            )
+
+            AppScreen.Home -> Scaffold(
+                topBar = {
+                    LpmTopBar(
+                        title = "My Trackings",
+                        onOpenDrawer = { scope.launch { drawerState.open() } }
+                    )
+                }
+            ) { padding ->
+                DashboardScreen(
+                    refreshKey = refreshKey,
+                    onNewFollowUp = { screen = AppScreen.NewFollowUp },
+                    onOpenJourney = { followUp ->
+                        selectedFollowUp = followUp
+                        screen = AppScreen.Journey
+                    },
+                    onOpenNotifications = { screen = AppScreen.Notifications },
+                    modifier = Modifier.padding(padding)
                 )
             }
-        ) { padding ->
-            ProfileScreen(
-                onBack = { screen = AppScreen.Home },
-                onLogout = {
-                    hasSeenWelcome = false
-                    screen = AppScreen.Splash
-                },
-                modifier = Modifier.padding(padding)
-            )
-        }
 
-        AppScreen.NewFollowUp -> OnboardingScreen(
-            onBack = { screen = AppScreen.Home },
-            onFollowUpCreated = {
-                refreshKey++
-                screen = AppScreen.Home
-            }
-        )
-
-        AppScreen.Journey -> {
-            val followUp = selectedFollowUp
-            if (followUp == null) {
-                screen = AppScreen.Home
-            } else {
-                JourneyScreen(
-                    followUp = followUp,
+            AppScreen.Profile -> Scaffold(
+                topBar = {
+                    LpmTopBar(
+                        title = "Profile",
+                        onOpenDrawer = { scope.launch { drawerState.open() } }
+                    )
+                }
+            ) { padding ->
+                ProfileScreen(
                     onBack = { screen = AppScreen.Home },
-                    onStartRoutine = { screen = AppScreen.Routine }
+                    onLogout = {
+                        hasSeenWelcome = false
+                        screen = AppScreen.Splash
+                    },
+                    modifier = Modifier.padding(padding)
                 )
             }
-        }
+
+            AppScreen.NewFollowUp -> OnboardingScreen(
+                onBack = { screen = AppScreen.Home },
+                onFollowUpCreated = {
+                    refreshKey++
+                    screen = AppScreen.Home
+                }
+            )
+
+            AppScreen.Journey -> {
+                val followUp = selectedFollowUp
+                if (followUp == null) {
+                    screen = AppScreen.Home
+                } else {
+                    JourneyScreen(
+                        followUp = followUp,
+                        onBack = { screen = AppScreen.Home },
+                        onStartRoutine = { screen = AppScreen.Routine },
+                        onOpenDrawer = { scope.launch { drawerState.open() } }
+                    )
+                }
+            }
 
         AppScreen.Routine -> DailyRoutineScreen(
             followUpTitle = selectedFollowUp?.title ?: "Daily Routine",
@@ -170,38 +215,24 @@ private fun AppRoot() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LpmTabBar(
-    currentScreen: AppScreen,
-    onNavigate: (AppScreen) -> Unit
+fun LpmTopBar(
+    title: String,
+    onOpenDrawer: () -> Unit
 ) {
-    NavigationBar(
-        containerColor = com.livingpatientmemory.ui.theme.White,
-        tonalElevation = 8.dp
-    ) {
-        NavigationBarItem(
-            icon = { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Outlined.Home, contentDescription = "Home") },
-            label = { Text("Home") },
-            selected = currentScreen == AppScreen.Home,
-            onClick = { onNavigate(AppScreen.Home) },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = com.livingpatientmemory.ui.theme.Black,
-                unselectedIconColor = com.livingpatientmemory.ui.theme.Gray400,
-                indicatorColor = com.livingpatientmemory.ui.theme.Gray200
-            )
+    androidx.compose.material3.TopAppBar(
+        title = { Text(title, fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+        navigationIcon = {
+            androidx.compose.material3.IconButton(onClick = onOpenDrawer) {
+                Icon(Icons.Outlined.Menu, contentDescription = "Menu")
+            }
+        },
+        colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+            containerColor = com.livingpatientmemory.ui.theme.White,
+            titleContentColor = com.livingpatientmemory.ui.theme.Black
         )
-        NavigationBarItem(
-            icon = { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Outlined.Person, contentDescription = "Profile") },
-            label = { Text("Profile") },
-            selected = currentScreen == AppScreen.Profile,
-            onClick = { onNavigate(AppScreen.Profile) },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = com.livingpatientmemory.ui.theme.Black,
-                unselectedIconColor = com.livingpatientmemory.ui.theme.Gray400,
-                indicatorColor = com.livingpatientmemory.ui.theme.Gray200
-            )
-        )
-    }
+    )
 }
 
 @Composable
