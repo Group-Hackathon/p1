@@ -5,8 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"time"
-
-	"github.com/go-chi/httprate/v2"
+	"github.com/go-chi/httprate"
 )
 
 const maxBodyBytes = 1 << 20 // 1 MiB
