@@ -19,6 +19,7 @@ import (
 	"github.com/Group-Hackathon/p1/global-app-backend/internal/db"
 	"github.com/Group-Hackathon/p1/global-app-backend/internal/gemini"
 	"github.com/Group-Hackathon/p1/global-app-backend/internal/handlers"
+	ratelimitmw "github.com/Group-Hackathon/p1/global-app-backend/internal/middleware"
 )
 
 func firstNonEmpty(values ...string) string {
@@ -86,6 +87,8 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
+	r.Use(ratelimitmw.LimitBodySize)
+	r.Use(ratelimitmw.GlobalPerIP())
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
@@ -102,12 +105,16 @@ func main() {
 	})
 
 	// Public routes (no auth required)
-	r.Post("/api/v1/auth/register", h.Register)
-	r.Post("/api/v1/auth/login", h.Login)
+	r.Group(func(r chi.Router) {
+		r.Use(ratelimitmw.AuthPerIP())
+		r.Post("/api/v1/auth/register", h.Register)
+		r.Post("/api/v1/auth/login", h.Login)
+	})
 
 	// Protected routes (JWT required)
 	r.Group(func(r chi.Router) {
 		r.Use(authService.Middleware)
+		r.Use(ratelimitmw.APIPerIP())
 
 		// Profiles
 		r.Get("/api/v1/profiles", h.ListProfiles)
@@ -115,7 +122,15 @@ func main() {
 
 		// Agent catalog
 		r.Get("/api/v1/agents", h.ListAgents)
-		r.Post("/api/v1/agents/recommend", handlers.RecommendAgentHandler(pool, geminiClient))
+		r.With(
+			ratelimitmw.RecommendPerIP(),
+			ratelimitmw.RecommendPerUser(func(r *http.Request) string {
+				if uid, ok := r.Context().Value(auth.UserIDKey).(string); ok {
+					return uid
+				}
+				return ""
+			}),
+		).Post("/api/v1/agents/recommend", handlers.RecommendAgentHandler(pool, geminiClient))
 
 		// Subscriptions / Follow-ups
 		r.Post("/api/v1/subscriptions", h.CreateSubscription)
