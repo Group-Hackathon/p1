@@ -37,7 +37,9 @@ data class FollowUpUi(
     val daysRemaining: Int,
     val totalDays: Int,
     val progress: Float,
-    val isActive: Boolean
+    val isActive: Boolean,
+    val rules: com.livingpatientmemory.data.model.FollowUpRules?,
+    val schedule: Map<String, List<String>>?
 )
 
 @Composable
@@ -86,98 +88,42 @@ fun DashboardScreen(
     Scaffold(
         topBar = {
             DashboardHeader(
-                hasPendingTasks = activeFollowUps.isNotEmpty(),
+                hasPendingTasks = false,
                 onOpenNotifications = onOpenNotifications
             )
         },
         containerColor = White,
         modifier = modifier
     ) { padding ->
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(padding),
+            contentAlignment = Alignment.Center
         ) {
-            item {
-                Spacer(modifier = Modifier.height(4.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
                 Text(
-                    text = today,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Gray400,
-                    fontWeight = FontWeight.Medium
+                    text = "Welcome to Living Patient Memory",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black,
+                    color = Black,
+                    textAlign = TextAlign.Center
                 )
-            }
-
-            if (isLoading) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(48.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(color = Black, strokeWidth = 2.dp)
-                    }
-                }
-            }
-
-            errorMessage?.let { msg ->
-                item { Text(msg, color = Gray600, style = MaterialTheme.typography.bodyMedium) }
-            }
-
-            if (!isLoading && errorMessage == null) {
-                if (activeFollowUps.isNotEmpty()) {
-                    item { TodayCard(count = activeFollowUps.size) }
-                }
-
-                item {
-                    Text(
-                        text = "ACTIVE FOLLOW-UPS",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Gray400,
-                        letterSpacing = 1.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                }
-
-                if (followUps.isEmpty()) {
-                    item {
-                        EmptyFollowUps(onNewFollowUp = onNewFollowUp)
-                    }
-                } else {
-                    items(followUps, key = { it.id }) { followUp ->
-                        FollowUpCard(
-                            followUp = followUp,
-                            onClick = { onOpenJourney(followUp) },
-                            onDelete = {
-                                scope.launch {
-                                    try {
-                                        ApiClient.apiService.deleteSubscription(followUp.id)
-                                        followUps = followUps.filter { it.id != followUp.id }
-                                    } catch (e: Exception) {
-                                        errorMessage = "Failed to delete subscription"
-                                    }
-                                }
-                            }
-                        )
-                    }
-                }
-
-                item {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    if (followUps.isNotEmpty()) {
-                        LpmPrimaryButton(text = "Start a new follow-up", onClick = onNewFollowUp)
-                        Spacer(modifier = Modifier.height(12.dp))
-                    }
-                    LpmSecondaryButton(
-                        text = "Scan your doctor's protocol",
-                        onClick = { showComingSoon = true }
-                    )
-                    Spacer(modifier = Modifier.height(32.dp))
-                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "You have no active trackings selected. Select a conversation from the top right menu, or start a new tracking protocol.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Gray600,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 24.sp
+                )
+                Spacer(modifier = Modifier.height(32.dp))
+                LpmPrimaryButton(text = "Start a new tracking", onClick = onNewFollowUp)
             }
         }
     }
@@ -392,7 +338,7 @@ fun ComingSoonDialog(onDismiss: () -> Unit) {
     )
 }
 
-private fun SubscriptionResponse.toFollowUpUi(agents: Map<String, AgentResponse>): FollowUpUi {
+fun SubscriptionResponse.toFollowUpUi(agents: Map<String, AgentResponse>): FollowUpUi {
     val start = runCatching { Instant.parse(starts_at) }.getOrNull() ?: Instant.now()
     val end = runCatching { Instant.parse(expires_at) }.getOrNull() ?: start.plus(14, ChronoUnit.DAYS)
     val now = Instant.now()
@@ -402,12 +348,36 @@ private fun SubscriptionResponse.toFollowUpUi(agents: Map<String, AgentResponse>
     val progress = (elapsedDays.toFloat() / totalDays.toFloat()).coerceIn(0f, 1f)
     val title = agents[agent_id]?.name ?: agent_id.replace("-", " ").replaceFirstChar { it.uppercase() }
 
+    var parsedRules: com.livingpatientmemory.data.model.FollowUpRules? = null
+    val rulesMap = parameters?.get("rules") as? Map<*, *>
+    if (rulesMap != null) {
+        parsedRules = com.livingpatientmemory.data.model.FollowUpRules(
+            temperature = rulesMap["temperature"] as? Boolean ?: false,
+            pain = rulesMap["pain"] as? Boolean ?: false,
+            photos = rulesMap["photos"] as? Boolean ?: false,
+            smartwatch = rulesMap["smartwatch"] as? Boolean ?: false,
+            bloodPressure = rulesMap["blood_pressure"] as? Boolean ?: false
+        )
+    }
+
+    var parsedSchedule: Map<String, List<String>>? = null
+    val scheduleMap = parameters?.get("schedule") as? Map<*, *>
+    if (scheduleMap != null) {
+        parsedSchedule = scheduleMap.mapNotNull { (k, v) ->
+            val key = k as? String
+            val valueList = (v as? List<*>)?.mapNotNull { it as? String }
+            if (key != null && valueList != null) key to valueList else null
+        }.toMap()
+    }
+
     return FollowUpUi(
         id = id,
         title = title,
         daysRemaining = daysRemaining,
         totalDays = totalDays,
         progress = progress,
-        isActive = daysRemaining > 0
+        isActive = daysRemaining > 0,
+        rules = parsedRules,
+        schedule = parsedSchedule
     )
 }

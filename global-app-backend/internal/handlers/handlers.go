@@ -222,6 +222,7 @@ type agentResponse struct {
 	DurationDaysMin int    `json:"duration_days_min"`
 	DurationDaysMax int    `json:"duration_days_max"`
 	GeminiModel     string `json:"gemini_model"`
+	Schedule        map[string][]string `json:"schedule,omitempty"`
 }
 
 // ListAgents returns all active analysis agents.
@@ -263,10 +264,11 @@ type subscriptionResponse struct {
 	ID                string `json:"id"`
 	ProfileID         string `json:"profile_id"`
 	AgentID           string `json:"agent_id"`
-	Status            string `json:"status"`
-	PrivateBackendURL string `json:"private_backend_url"`
-	StartsAt          string `json:"starts_at"`
-	ExpiresAt         string `json:"expires_at"`
+	Status            string                 `json:"status"`
+	PrivateBackendURL string                 `json:"private_backend_url"`
+	Parameters        map[string]interface{} `json:"parameters,omitempty"`
+	StartsAt          string                 `json:"starts_at"`
+	ExpiresAt         string                 `json:"expires_at"`
 }
 
 // RecommendRequest is the payload from the mobile app
@@ -301,7 +303,19 @@ func RecommendAgentHandler(db *pgxpool.Pool, geminiClient *gemini.Client) http.H
 			prompt += "Patient sensors and rules enabled: " + string(rulesBytes) + "\n"
 		}
 
-		prompt += "\nBased ONLY on this information, generate a short daily tracking plan summary (e.g., '1 photo - morning', 'Pain check - evening'). Do not include greetings or disclaimers, just the daily tasks."
+		prompt += `
+Based ONLY on this information, generate a short daily tracking plan.
+Respond STRICTLY with a valid JSON object matching this schema:
+{
+  "description": "Short human-readable summary of the plan, e.g. 'Temperature check - morning, noon, evening'",
+  "schedule": {
+    "08:00": ["pain", "temperature"],
+    "12:00": ["temperature"],
+    "20:00": ["pain", "temperature", "photo"]
+  }
+}
+Do not include any markdown formatting, greetings, or disclaimers. Just the JSON object.
+Use 24h format for the time keys. The array should contain strings like "pain", "temperature", "photo", "smartwatch", "blood_pressure". Only include actions that were requested or enabled in the patient's rules.`
 
 		resp, err := geminiClient.GenerateText(r.Context(), prompt)
 		if err != nil {
@@ -310,17 +324,38 @@ func RecommendAgentHandler(db *pgxpool.Pool, geminiClient *gemini.Client) http.H
 			return
 		}
 
+		cleanResp := strings.TrimSpace(resp)
+		cleanResp = strings.TrimPrefix(cleanResp, "```json")
+		cleanResp = strings.TrimPrefix(cleanResp, "```")
+		cleanResp = strings.TrimSuffix(cleanResp, "```")
+		cleanResp = strings.TrimSpace(cleanResp)
+
+		var geminiOutput struct {
+			Description string              `json:"description"`
+			Schedule    map[string][]string `json:"schedule"`
+		}
+
+		if err := json.Unmarshal([]byte(cleanResp), &geminiOutput); err != nil {
+			log.Printf("Failed to parse Gemini JSON: %v. Raw: %s", err, resp)
+			geminiOutput.Description = cleanResp
+			geminiOutput.Schedule = map[string][]string{
+				"08:00": {"temperature", "pain"},
+				"20:00": {"temperature", "pain"},
+			}
+		}
+
 		// Create a dynamic agent response
 		agent := agentResponse{
 			ID:              "dynamic-plan",
 			Name:            "Personalized Protocol",
 			Version:         "1.0",
 			Category:        "dynamic",
-			Description:     strings.TrimSpace(resp),
+			Description:     strings.TrimSpace(geminiOutput.Description),
 			PriceCents:      0,
 			DurationDaysMin: 1,
 			DurationDaysMax: 30,
 			GeminiModel:     "gemini-3.5-flash",
+			Schedule:        geminiOutput.Schedule,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -391,7 +426,7 @@ func (h *Handler) ListSubscriptions(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(auth.UserIDKey).(string)
 
 	rows, err := h.db.Query(r.Context(),
-		`SELECT s.id, s.profile_id, s.agent_id, s.status, s.private_backend_url, s.starts_at, s.expires_at
+		`SELECT s.id, s.profile_id, s.agent_id, s.status, s.private_backend_url, s.parameters_json, s.starts_at, s.expires_at
 		 FROM subscriptions s
 		 JOIN profiles p ON s.profile_id = p.id
 		 WHERE p.user_id = $1
@@ -408,8 +443,15 @@ func (h *Handler) ListSubscriptions(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var s subscriptionResponse
 		var startsAt, expiresAt time.Time
-		if err := rows.Scan(&s.ID, &s.ProfileID, &s.AgentID, &s.Status, &s.PrivateBackendURL, &startsAt, &expiresAt); err != nil {
+		var paramsJSON []byte
+		if err := rows.Scan(&s.ID, &s.ProfileID, &s.AgentID, &s.Status, &s.PrivateBackendURL, &paramsJSON, &startsAt, &expiresAt); err != nil {
 			continue
+		}
+		if len(paramsJSON) > 0 {
+			var params map[string]interface{}
+			if err := json.Unmarshal(paramsJSON, &params); err == nil {
+				s.Parameters = params
+			}
 		}
 		s.StartsAt = startsAt.Format(time.RFC3339)
 		s.ExpiresAt = expiresAt.Format(time.RFC3339)
@@ -540,14 +582,8 @@ func (h *Handler) PostTimelineEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Simulate AI Response with Gemini if available, else static
-	aiReply := "I've noted that down in your medical journal. Continue following your protocol."
-	if h.gemini != nil {
-		prompt := "You are a medical assistant monitoring a patient. The patient just reported: " + req.Content + ".\nReply with a short, empathetic acknowledgement confirming the data was saved. Do not provide medical advice. Keep it under 2 sentences."
-		if resp, err := h.gemini.GenerateText(r.Context(), prompt); err == nil {
-			aiReply = strings.TrimSpace(resp)
-		}
-	}
+	// Use a static, fast acknowledgement response
+	aiReply := "Your measurements have been successfully saved."
 
 	// Insert AI Event
 	var aiID string

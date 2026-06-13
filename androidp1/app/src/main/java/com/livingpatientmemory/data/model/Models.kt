@@ -45,12 +45,14 @@ data class AgentResponse(
     val price_cents: Int,
     val duration_days_min: Int,
     val duration_days_max: Int,
-    val gemini_model: String
+    val gemini_model: String,
+    val schedule: Map<String, List<String>>? = null
 )
 
 data class SubscriptionRequest(
     val profile_id: String,
     val agent_id: String,
+    val duration_days: Int = 0,
     val private_backend_url: String? = null,
     val parameters: Map<String, Any>? = null
 )
@@ -62,7 +64,8 @@ data class SubscriptionResponse(
     val status: String,
     val private_backend_url: String,
     val starts_at: String,
-    val expires_at: String
+    val expires_at: String,
+    val parameters: Map<String, Any>? = null
 )
 
 // ── New models for the refonte ──
@@ -84,6 +87,14 @@ data class TrackingRules(
     val smartwatch: Boolean = false,
     val bloodPressure: Boolean = false,
     val custom: String = ""
+)
+
+data class FollowUpRules(
+    val temperature: Boolean,
+    val pain: Boolean,
+    val photos: Boolean,
+    val smartwatch: Boolean,
+    val bloodPressure: Boolean
 )
 
 /** Local-only model representing an AI-generated plan item */

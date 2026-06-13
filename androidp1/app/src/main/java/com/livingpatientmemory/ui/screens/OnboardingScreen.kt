@@ -29,7 +29,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun OnboardingScreen(
     onBack: () -> Unit,
-    onFollowUpCreated: (title: String) -> Unit,
+    onFollowUpCreated: (subscriptionId: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var step by remember { mutableIntStateOf(1) }
@@ -48,6 +48,7 @@ fun OnboardingScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     
     var generatedPlan by remember { mutableStateOf("") }
+    var generatedSchedule by remember { mutableStateOf<Map<String, List<String>>?>(null) }
 
     val scope = rememberCoroutineScope()
 
@@ -121,6 +122,7 @@ fun OnboardingScreen(
                                     )
                                 )
                                 generatedPlan = response.description
+                                generatedSchedule = response.schedule
                                 step = 4
                             } catch (e: Exception) {
                                 errorMessage = "Failed to generate plan: ${e.message}"
@@ -145,6 +147,8 @@ fun OnboardingScreen(
                                 }
                                 val profileId = AuthHelper.ensureProfile() ?: throw IllegalStateException("Profile not found")
                                 
+                                val duration = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), appointmentDate).toInt()
+
                                 val rulesMap = mapOf(
                                     "temperature" to ruleTemperature,
                                     "pain" to rulePain,
@@ -153,19 +157,23 @@ fun OnboardingScreen(
                                     "blood_pressure" to ruleBp
                                 )
 
-                                ApiClient.apiService.createSubscription(
+                                val params = mutableMapOf<String, Any>(
+                                    "symptoms" to symptomText,
+                                    "next_appointment" to appointmentDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                                    "rules" to rulesMap,
+                                    "plan" to generatedPlan
+                                )
+                                generatedSchedule?.let { params["schedule"] = it }
+
+                                val response = ApiClient.apiService.createSubscription(
                                     SubscriptionRequest(
                                         profile_id = profileId,
                                         agent_id = "dynamic-plan",
-                                        parameters = mapOf(
-                                            "symptoms" to symptomText,
-                                            "next_appointment" to appointmentDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                                            "rules" to rulesMap,
-                                            "plan" to generatedPlan
-                                        )
+                                        duration_days = if (duration > 0) duration else 14,
+                                        parameters = params
                                     )
                                 )
-                                onFollowUpCreated("Personalized Protocol")
+                                onFollowUpCreated(response.id)
                             } catch (e: Exception) {
                                 errorMessage = "Failed: ${e.message}"
                             } finally {
