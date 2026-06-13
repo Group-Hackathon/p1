@@ -92,7 +92,7 @@ private fun AppRoot() {
         gesturesEnabled = screen == AppScreen.Home || screen == AppScreen.Journey || screen == AppScreen.Profile,
         drawerContent = {
             ModalDrawerSheet(
-                containerColor = com.livingpatientmemory.ui.theme.White
+                drawerContainerColor = com.livingpatientmemory.ui.theme.White
             ) {
                 Spacer(modifier = Modifier.height(24.dp))
                 Text(
@@ -200,18 +200,19 @@ private fun AppRoot() {
                 }
             }
 
-        AppScreen.Routine -> DailyRoutineScreen(
-            followUpTitle = selectedFollowUp?.title ?: "Daily Routine",
-            onBack = { screen = AppScreen.Journey },
-            onComplete = {
-                refreshKey++
-                screen = AppScreen.Home
-            }
-        )
+            AppScreen.Routine -> DailyRoutineScreen(
+                followUpTitle = selectedFollowUp?.title ?: "Daily Routine",
+                onBack = { screen = AppScreen.Journey },
+                onComplete = {
+                    refreshKey++
+                    screen = AppScreen.Home
+                }
+            )
 
-        AppScreen.Notifications -> NotificationsScreen(
-            onBack = { screen = AppScreen.Home }
-        )
+            AppScreen.Notifications -> NotificationsScreen(
+                onBack = { screen = AppScreen.Home }
+            )
+        }
     }
 }
 

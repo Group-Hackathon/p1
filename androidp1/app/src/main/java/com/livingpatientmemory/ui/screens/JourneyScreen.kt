@@ -1,12 +1,13 @@
 package com.livingpatientmemory.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -14,88 +15,101 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.livingpatientmemory.LpmTopBar
+import com.livingpatientmemory.data.api.ApiClient
+import com.livingpatientmemory.data.model.TimelineEventRequest
+import com.livingpatientmemory.data.model.TimelineEventResponse
 import com.livingpatientmemory.ui.components.*
 import com.livingpatientmemory.ui.theme.*
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import java.util.Locale
-
-private enum class DayStatus { Done, Today, Upcoming }
-
-private data class JourneyDay(
-    val dayNumber: Int,
-    val date: LocalDate,
-    val status: DayStatus
-)
+import kotlinx.coroutines.launch
 
 @Composable
 fun JourneyScreen(
     followUp: FollowUpUi,
     onBack: () -> Unit,
     onStartRoutine: () -> Unit,
+    onOpenDrawer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val days = remember(followUp) { buildJourney(followUp) }
-    val dateFormatter = remember {
-        DateTimeFormatter.ofPattern("EEE, MMM d", Locale.ENGLISH)
+    val coroutineScope = rememberCoroutineScope()
+    var events by remember { mutableStateOf<List<TimelineEventResponse>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(followUp.id) {
+        try {
+            events = ApiClient.apiService.getTimeline(followUp.id)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            isLoading = false
+        }
+    }
+    
+    // Auto-scroll to bottom on new event
+    LaunchedEffect(events.size) {
+        if (events.isNotEmpty()) {
+            listState.animateScrollToItem(events.size)
+        }
     }
 
     Scaffold(
-        topBar = { LpmTopBar(title = followUp.title, onBack = onBack) },
+        topBar = { LpmTopBar(title = followUp.title, onOpenDrawer = onOpenDrawer) },
         containerColor = White,
         modifier = modifier
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 20.dp)
-        ) {
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                JourneySummary(followUp = followUp)
-                Spacer(modifier = Modifier.height(28.dp))
-                Text(
-                    text = "YOUR PLAN",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Gray400,
-                    letterSpacing = 1.5.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(16.dp))
+        if (isLoading) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Black)
             }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .background(White)
+            ) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    contentPadding = PaddingValues(top = 16.dp, bottom = 16.dp)
+                ) {
+                    item {
+                        JourneySummary(followUp = followUp)
+                        Spacer(modifier = Modifier.height(28.dp))
+                    }
 
-            items(days.size) { index ->
-                val day = days[index]
-                JourneyNode(
-                    day = day,
-                    dateFormatter = dateFormatter,
-                    isLast = index == days.size - 1,
-                    zigzagRight = index % 2 == 1,
-                    onStartRoutine = onStartRoutine
-                )
+                    if (events.isEmpty()) {
+                        item {
+                            Text(
+                                text = "No timeline events yet. The assistant will guide you shortly.",
+                                color = Gray400,
+                                modifier = Modifier.padding(vertical = 20.dp)
+                            )
+                        }
+                    } else {
+                        itemsIndexed(events) { index, event ->
+                            val isUser = event.type == "user"
+                            TimelineBubble(event = event, isRight = isUser)
+                        }
+                    }
+                }
+
+                // BOTTOM INPUT AREA
+                BottomInputArea(followUpId = followUp.id) {
+                    coroutineScope.launch {
+                        try {
+                            events = ApiClient.apiService.getTimeline(followUp.id)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
             }
-
-            item { Spacer(modifier = Modifier.height(40.dp)) }
         }
-    }
-}
-
-private fun buildJourney(followUp: FollowUpUi): List<JourneyDay> {
-    val todayIndex = (followUp.totalDays - followUp.daysRemaining)
-        .coerceIn(0, followUp.totalDays - 1)
-    val startDate = LocalDate.now().minusDays(todayIndex.toLong())
-
-    return (0 until followUp.totalDays).map { i ->
-        JourneyDay(
-            dayNumber = i + 1,
-            date = startDate.plusDays(i.toLong()),
-            status = when {
-                i < todayIndex -> DayStatus.Done
-                i == todayIndex && followUp.isActive -> DayStatus.Today
-                else -> DayStatus.Upcoming
-            }
-        )
     }
 }
 
@@ -144,106 +158,137 @@ private fun SummaryItem(value: String, label: String) {
 }
 
 @Composable
-private fun JourneyNode(
-    day: JourneyDay,
-    dateFormatter: DateTimeFormatter,
-    isLast: Boolean,
-    zigzagRight: Boolean,
-    onStartRoutine: () -> Unit
-) {
-    val startPadding = if (zigzagRight) 56.dp else 0.dp
+private fun TimelineBubble(event: TimelineEventResponse, isRight: Boolean) {
+    val arrangement = if (isRight) Arrangement.End else Arrangement.Start
+    val bgColor = if (isRight) Black else Gray100
+    val textColor = if (isRight) White else Black
+    val dateColor = if (isRight) Gray200 else Gray600
 
-    Column(modifier = Modifier.padding(start = startPadding)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            DayCircle(day = day)
-            Spacer(modifier = Modifier.width(16.dp))
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        horizontalArrangement = arrangement
+    ) {
+        Box(
+            modifier = Modifier
+                .widthIn(max = 280.dp)
+                .background(bgColor, RoundedCornerShape(16.dp))
+                .padding(16.dp)
+        ) {
             Column {
                 Text(
-                    text = "Day ${day.dayNumber}" + if (day.status == DayStatus.Today) " — Today" else "",
-                    style = MaterialTheme.typography.titleMedium,
+                    text = event.date_label,
+                    fontSize = 11.sp,
+                    color = dateColor,
                     fontWeight = FontWeight.Bold,
-                    color = if (day.status == DayStatus.Upcoming) Gray400 else Black
+                    modifier = Modifier.padding(bottom = 4.dp)
                 )
                 Text(
-                    text = day.date.format(dateFormatter),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Gray400
+                    text = event.content,
+                    fontSize = 14.sp,
+                    color = textColor,
+                    lineHeight = 20.sp
                 )
-                if (day.status != DayStatus.Done) {
-                    Text(
-                        text = "Photo 9:00 AM · Check-in 7:00 PM",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (day.status == DayStatus.Today) Gray600 else Gray400
-                    )
-                }
             }
-        }
-
-        if (day.status == DayStatus.Today) {
-            Spacer(modifier = Modifier.height(12.dp))
-            LpmPrimaryButton(
-                text = "Start today's routine",
-                onClick = onStartRoutine,
-                modifier = Modifier.padding(start = 64.dp, end = if (zigzagRight) 0.dp else 56.dp)
-            )
-        }
-
-        if (!isLast) {
-            Box(
-                modifier = Modifier
-                    .padding(start = 23.dp)
-                    .width(2.dp)
-                    .height(28.dp)
-                    .background(if (day.status == DayStatus.Done) Black else Gray200)
-            )
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DayCircle(day: JourneyDay) {
-    when (day.status) {
-        DayStatus.Done -> Box(
-            modifier = Modifier
-                .size(48.dp)
-                .background(Black, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.Default.Check,
-                contentDescription = "Done",
-                tint = White,
-                modifier = Modifier.size(22.dp)
-            )
-        }
+private fun BottomInputArea(followUpId: String, onSent: () -> Unit) {
+    var text by remember { mutableStateOf("") }
+    var painValue by remember { mutableFloatStateOf(3f) }
+    val coroutineScope = rememberCoroutineScope()
+    var isSending by remember { mutableStateOf(false) }
 
-        DayStatus.Today -> Box(
-            modifier = Modifier
-                .size(48.dp)
-                .border(3.dp, Black, CircleShape)
-                .background(White, CircleShape),
-            contentAlignment = Alignment.Center
+    Surface(
+        color = White,
+        shadowElevation = 16.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
         ) {
             Text(
-                text = "${day.dayNumber}",
-                fontWeight = FontWeight.Black,
-                fontSize = 18.sp,
+                text = "Evening Check-in",
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
                 color = Black
             )
-        }
-
-        DayStatus.Upcoming -> Box(
-            modifier = Modifier
-                .size(48.dp)
-                .border(1.dp, Gray200, CircleShape)
-                .background(White, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
             Text(
-                text = "${day.dayNumber}",
-                fontWeight = FontWeight.Medium,
-                fontSize = 16.sp,
-                color = Gray400
+                text = "What is your current pain level?",
+                fontSize = 13.sp,
+                color = Gray600,
+                modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
+            )
+            
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Slider(
+                    value = painValue,
+                    onValueChange = { painValue = it },
+                    valueRange = 0f..10f,
+                    steps = 9,
+                    modifier = Modifier.weight(1f),
+                    colors = SliderDefaults.colors(
+                        thumbColor = Black,
+                        activeTrackColor = Black,
+                        inactiveTrackColor = Gray200
+                    )
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "${painValue.toInt()}",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    color = Black,
+                    modifier = Modifier.width(24.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                placeholder = { Text("Or type a message...", color = Gray400) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Gray200,
+                    unfocusedBorderColor = Gray200,
+                    cursorColor = Black
+                ),
+                trailingIcon = {
+                    IconButton(
+                        onClick = {
+                            if (isSending) return@IconButton
+                            isSending = true
+                            val msg = text.ifBlank { "Pain level recorded at ${painValue.toInt()}/10." }
+                            coroutineScope.launch {
+                                try {
+                                    ApiClient.apiService.postTimelineEvent(
+                                        followUpId,
+                                        TimelineEventRequest(content = msg, date_label = "Evening Check-in")
+                                    )
+                                    text = ""
+                                    onSent()
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                } finally {
+                                    isSending = false
+                                }
+                            }
+                        }
+                    ) {
+                        if (isSending) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Black, strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Send, contentDescription = "Send", tint = Black)
+                        }
+                    }
+                }
             )
         }
     }
