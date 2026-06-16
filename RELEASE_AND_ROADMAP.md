@@ -1,23 +1,23 @@
-# Living Patient Memory - Version 1.0.2
+# Living Patient Memory - Version 1.0.3
 
-## New Features & UI/UX Improvements
-- **Streamlined Dashboard**: The home screen has been redesigned for a minimalist "chat bubble style" layout, displaying only active protocols discreetly.
-- **Optimized Forms**: Vitals entry (e.g., temperature) now features quick-select chips and forces the numeric keyboard for faster input.
-- **Side Menu Ergonomics**: Added a premium header displaying the user's profile at the top of the drawer.
+## New Features & Commercial Upgrades
+- **Dynamic Onboarding & Monetization**: Implemented a dynamic pricing model based on tracking duration (0.20€/day, capped at 5.99€). The AI analysis is now presented as a "proprietary intelligent technology" analyzing thousands of medical records (no "Gemini" branding).
+- **Manual Protocol Configuration**: Free/Offline fallback allowing patients to manually configure their reminders day-by-day (intentionally tedious to encourage premium conversion).
+- **PDF Data Visualization**: The PDF report now generates native, medical-grade line charts (Temperature & Pain evolution) directly on the document, providing instant value to physicians.
+- **Local Push Notifications (Architecture)**: Implemented zero-cost, 100% reliable local push notifications via `AlarmManager` to remind patients of their tracking without server costs.
 
 ---
 
-# Commercial & Marketing Roadmap - Version 1.0.3
+# Commercial & Technical Roadmap - Version 1.0.4
 
-In the upcoming version, we will initiate monetization and strengthen the professional aspect of cloud tracking.
+In the upcoming version, we will focus on real payment integration and finalizing the notification system.
 
-## 1. Pro Tracking & Vector Cloud (Turbo Quant)
-- Integration of an ultra-fast vector database (Turbo Quant) to ensure professional patient tracking in the cloud, enabling large-scale, real-time medical data cross-referencing and analysis.
+## 1. Google Play Billing Integration (In-App Purchases)
+- Replace the fake payment button with real Google Play Console Billing.
+- **Adaptive Pricing Strategy**: Since Google Play Billing does not support arbitrary "on-the-fly" dynamic prices, we will pre-create a set of SKUs in the Play Console representing price steps (e.g., `sku_tier_1` for 0.20€, `sku_tier_2` for 0.40€, up to `sku_tier_30` for 5.99€). The app will automatically select and trigger the correct SKU based on the duration.
 
-## 2. Manual Protocol Configuration
-- Users will now have the ability to manually configure their reminders and routines, without relying on AI analysis.
-- *Marketing Note: The analysis AI must be presented as our "proprietary intelligent technology". Never mention or refer to "Gemini" in the product or marketing materials.*
+## 2. Notification Triggers
+- Connect the `NotificationHelper` to the onboarding flow to automatically arm the 08:00, 12:00, and 20:00 alarms based on the generated/purchased schedule.
 
-## 3. Dynamic Subscription Model
-- Using the intelligent analysis service (which involves our AI) will trigger a paid subscription option.
-- This pricing model will be dynamic: the cost will be calculated and adjusted based on the time and duration required until the next medical appointment.
+## 3. Real Authentication & Cloud Sync
+- Integrate Firebase Auth (Google / Apple Sign-In) to ensure patient data is backed up and recoverable if the device is lost.
