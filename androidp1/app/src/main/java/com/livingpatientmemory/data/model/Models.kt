@@ -106,7 +106,8 @@ data class PlanItem(
 
 data class TimelineEventRequest(
     val content: String,
-    val date_label: String
+    val date_label: String,
+    val effective_date: String? = null
 )
 
 data class TimelineEventResponse(
@@ -115,5 +116,10 @@ data class TimelineEventResponse(
     val type: String,
     val date_label: String,
     val content: String,
-    val created_at: String
+    val created_at: String,
+    val effective_at: String? = null
+)
+
+data class UpdateSubscriptionRequest(
+    val expires_at: String
 )

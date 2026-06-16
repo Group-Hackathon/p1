@@ -91,7 +91,7 @@ func main() {
 	r.Use(ratelimitmw.GlobalPerIP())
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		ExposedHeaders:   []string{"Link"},
 		AllowCredentials: true,
@@ -135,7 +135,11 @@ func main() {
 		// Subscriptions / Follow-ups
 		r.Post("/api/v1/subscriptions", h.CreateSubscription)
 		r.Get("/api/v1/subscriptions", h.ListSubscriptions)
+		r.Patch("/api/v1/subscriptions/{id}", h.PatchSubscription)
 		r.Delete("/api/v1/subscriptions/{id}", h.DeleteSubscription)
+
+		// Account
+		r.Delete("/api/v1/auth/delete", h.DeleteAccount)
 
 		// Timeline
 		r.Get("/api/v1/subscriptions/{id}/timeline", h.GetTimeline)

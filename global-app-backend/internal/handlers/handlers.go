@@ -309,7 +309,8 @@ func RecommendAgentHandler(db *pgxpool.Pool, geminiClient *gemini.Client) http.H
 Based ONLY on this information, generate a short daily tracking plan.
 Respond STRICTLY with a valid JSON object matching this schema:
 {
-  "description": "Short human-readable summary of the plan, e.g. 'Temperature check - morning, noon, evening'",
+  "title": "Short descriptive title (max 5 words, e.g. 'Post-Op Knee Monitoring', 'Fever Tracking')",
+  "description": "Short human-readable summary of the plan",
   "schedule": {
     "08:00": ["pain", "temperature"],
     "12:00": ["temperature"],
@@ -333,27 +334,32 @@ Use 24h format for the time keys. The array should contain strings like "pain", 
 		cleanResp = strings.TrimSpace(cleanResp)
 
 		var geminiOutput struct {
+			Title       string              `json:"title"`
 			Description string              `json:"description"`
 			Schedule    map[string][]string `json:"schedule"`
 		}
 
 		if err := json.Unmarshal([]byte(cleanResp), &geminiOutput); err != nil {
 			log.Printf("Failed to parse Gemini JSON: %v. Raw: %s", err, resp)
+			geminiOutput.Title = "Personalized Protocol"
 			geminiOutput.Description = cleanResp
 			geminiOutput.Schedule = map[string][]string{
 				"08:00": {"temperature", "pain"},
 				"20:00": {"temperature", "pain"},
 			}
 		}
+		if geminiOutput.Title == "" {
+			geminiOutput.Title = "Personalized Protocol"
+		}
 
 		// Create a dynamic agent response
 		agent := agentResponse{
 			ID:              "dynamic-plan",
-			Name:            "Personalized Protocol",
+			Name:            geminiOutput.Title,
 			Version:         "1.0",
 			Category:        "dynamic",
 			Description:     strings.TrimSpace(geminiOutput.Description),
-			PriceCents:      0,
+			PriceCents:      0, // Price is calculated on frontend based on duration
 			DurationDaysMin: 1,
 			DurationDaysMax: 30,
 			GeminiModel:     "gemini-3.5-flash",
@@ -484,6 +490,69 @@ func (h *Handler) DeleteSubscription(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// PatchSubscription updates a subscription (e.g. change appointment date).
+func (h *Handler) PatchSubscription(w http.ResponseWriter, r *http.Request) {
+	subID := chi.URLParam(r, "id")
+	userID := r.Context().Value(auth.UserIDKey).(string)
+
+	var req struct {
+		ExpiresAt string `json:"expires_at"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	newExpiry, err := time.Parse(time.RFC3339, req.ExpiresAt)
+	if err != nil {
+		// Try date-only format
+		newExpiry, err = time.Parse("2006-01-02", req.ExpiresAt)
+		if err != nil {
+			http.Error(w, `{"error":"invalid date format, use RFC3339 or YYYY-MM-DD"}`, http.StatusBadRequest)
+			return
+		}
+		// Set to end of day
+		newExpiry = newExpiry.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+	}
+
+	res, err := h.db.Exec(r.Context(),
+		`UPDATE subscriptions SET expires_at = $1 WHERE id = $2 AND profile_id IN (SELECT id FROM profiles WHERE user_id = $3)`,
+		newExpiry, subID, userID,
+	)
+	if err != nil {
+		http.Error(w, `{"error":"failed to update subscription"}`, http.StatusInternalServerError)
+		return
+	}
+	if res.RowsAffected() == 0 {
+		http.Error(w, `{"error":"subscription not found"}`, http.StatusNotFound)
+		return
+	}
+
+	// Return updated subscription
+	var s subscriptionResponse
+	var startsAt, expiresAt time.Time
+	var paramsJSON []byte
+	err = h.db.QueryRow(r.Context(),
+		`SELECT s.id, s.profile_id, s.agent_id, s.status, s.private_backend_url, s.parameters_json, s.starts_at, s.expires_at
+		 FROM subscriptions s WHERE s.id = $1`, subID,
+	).Scan(&s.ID, &s.ProfileID, &s.AgentID, &s.Status, &s.PrivateBackendURL, &paramsJSON, &startsAt, &expiresAt)
+	if err != nil {
+		http.Error(w, `{"error":"failed to fetch updated subscription"}`, http.StatusInternalServerError)
+		return
+	}
+	if len(paramsJSON) > 0 {
+		var params map[string]interface{}
+		if err := json.Unmarshal(paramsJSON, &params); err == nil {
+			s.Parameters = params
+		}
+	}
+	s.StartsAt = startsAt.Format(time.RFC3339)
+	s.ExpiresAt = expiresAt.Format(time.RFC3339)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s)
+}
+
 // DeleteAccount deletes the authenticated user and all associated data.
 func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(auth.UserIDKey).(string)
@@ -499,17 +568,19 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 // --- Timeline Handlers ---
 
 type timelineEventRequest struct {
-	Content   string `json:"content"`
-	DateLabel string `json:"date_label"` // e.g. 'Day 1 - Evening'
+	Content       string  `json:"content"`
+	DateLabel     string  `json:"date_label"`      // e.g. 'Day 1 - Evening'
+	EffectiveDate *string `json:"effective_date"`   // optional, for retroactive entries (RFC3339 or YYYY-MM-DD)
 }
 
 type timelineEventResponse struct {
-	ID             string `json:"id"`
-	SubscriptionID string `json:"subscription_id"`
-	Type           string `json:"type"`
-	DateLabel      string `json:"date_label"`
-	Content        string `json:"content"`
-	CreatedAt      string `json:"created_at"`
+	ID             string  `json:"id"`
+	SubscriptionID string  `json:"subscription_id"`
+	Type           string  `json:"type"`
+	DateLabel      string  `json:"date_label"`
+	Content        string  `json:"content"`
+	CreatedAt      string  `json:"created_at"`
+	EffectiveAt    *string `json:"effective_at,omitempty"`
 }
 
 // GetTimeline fetches the vertical timeline for a subscription.
@@ -529,7 +600,7 @@ func (h *Handler) GetTimeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.db.Query(r.Context(),
-		`SELECT id, subscription_id, type, date_label, content, created_at FROM timeline_events WHERE subscription_id = $1 ORDER BY created_at ASC`,
+		`SELECT id, subscription_id, type, date_label, content, created_at, effective_at FROM timeline_events WHERE subscription_id = $1 ORDER BY COALESCE(effective_at, created_at) ASC`,
 		subID,
 	)
 	if err != nil {
@@ -542,8 +613,13 @@ func (h *Handler) GetTimeline(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var e timelineEventResponse
 		var t time.Time
-		if err := rows.Scan(&e.ID, &e.SubscriptionID, &e.Type, &e.DateLabel, &e.Content, &t); err == nil {
+		var effectiveAt *time.Time
+		if err := rows.Scan(&e.ID, &e.SubscriptionID, &e.Type, &e.DateLabel, &e.Content, &t, &effectiveAt); err == nil {
 			e.CreatedAt = t.Format(time.RFC3339)
+			if effectiveAt != nil {
+				formatted := effectiveAt.Format(time.RFC3339)
+				e.EffectiveAt = &formatted
+			}
 			events = append(events, e)
 		}
 	}
@@ -574,10 +650,20 @@ func (h *Handler) PostTimelineEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse optional effective_date
+	var effectiveAt *time.Time
+	if req.EffectiveDate != nil && *req.EffectiveDate != "" {
+		if t, err := time.Parse(time.RFC3339, *req.EffectiveDate); err == nil {
+			effectiveAt = &t
+		} else if t, err := time.Parse("2006-01-02", *req.EffectiveDate); err == nil {
+			effectiveAt = &t
+		}
+	}
+
 	// Insert User Event
 	_, err := h.db.Exec(r.Context(),
-		`INSERT INTO timeline_events (subscription_id, type, date_label, content) VALUES ($1, 'user', $2, $3)`,
-		subID, req.DateLabel, req.Content,
+		`INSERT INTO timeline_events (subscription_id, type, date_label, content, effective_at) VALUES ($1, 'user', $2, $3, $4)`,
+		subID, req.DateLabel, req.Content, effectiveAt,
 	)
 	if err != nil {
 		http.Error(w, `{"error":"failed to save event"}`, http.StatusInternalServerError)

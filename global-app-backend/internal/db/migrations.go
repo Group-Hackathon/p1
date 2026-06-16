@@ -73,6 +73,9 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 		)`,
 
+		// Add effective_at for retroactive measurements
+		`ALTER TABLE timeline_events ADD COLUMN IF NOT EXISTS effective_at TIMESTAMP WITH TIME ZONE`,
+
 		// Seed the wound-monitoring agent
 		`INSERT INTO agent_catalog (id, name, version, category, description, price_cents, duration_days_min, duration_days_max, duration_days_default, gemini_model, system_prompt)
 		VALUES (

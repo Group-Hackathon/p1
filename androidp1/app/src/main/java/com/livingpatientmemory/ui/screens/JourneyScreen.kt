@@ -25,6 +25,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -43,11 +45,16 @@ import com.livingpatientmemory.MainTopBar
 import com.livingpatientmemory.data.api.ApiClient
 import com.livingpatientmemory.data.model.TimelineEventRequest
 import com.livingpatientmemory.data.model.TimelineEventResponse
+import com.livingpatientmemory.data.model.UpdateSubscriptionRequest
 import com.livingpatientmemory.ui.components.*
 import com.livingpatientmemory.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
 private enum class MeasurementStep {
@@ -56,28 +63,40 @@ private enum class MeasurementStep {
 
 private sealed class TimelineItem {
     data class PastEvent(val userEvent: TimelineEventResponse, val aiEvent: TimelineEventResponse?) : TimelineItem()
-    data class FutureDay(val dayNumber: Int, val label: String) : TimelineItem()
+    data class FutureDay(val dayNumber: Int, val label: String, val date: LocalDate) : TimelineItem()
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JourneyScreen(
     followUp: FollowUpUi,
     onBack: () -> Unit,
     onOpenDrawer: () -> Unit,
+    onOpenReport: (() -> Unit)? = null,
+    onFollowUpUpdated: ((FollowUpUi) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val coroutineScope = rememberCoroutineScope()
     var events by remember { mutableStateOf<List<TimelineEventResponse>>(emptyList()) }
     var isFormMode by remember { mutableStateOf(false) }
+    var formEffectiveDate by remember { mutableStateOf<LocalDate?>(null) }
+
+    // Mutable followUp state for date changes
+    var currentFollowUp by remember { mutableStateOf(followUp) }
+
+    // Menu state
+    var showMenu by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
     val now = LocalTime.now()
-    val schedule = followUp.schedule ?: mapOf(
-        "08:00" to listOf("pain", "temperature"), 
+    val schedule = currentFollowUp.schedule ?: mapOf(
+        "08:00" to listOf("pain", "temperature"),
         "20:00" to listOf("pain", "temperature", "photo")
     )
-    
-    val sortedTimes = schedule.keys.mapNotNull { 
-        runCatching { LocalTime.parse(it) }.getOrNull() 
+
+    val sortedTimes = schedule.keys.mapNotNull {
+        runCatching { LocalTime.parse(it) }.getOrNull()
     }.sorted()
 
     var activeWindowTime: LocalTime? = null
@@ -115,11 +134,11 @@ fun JourneyScreen(
 
     val nextWindowName = nextWindowTime?.toString()?.let { "Check-in at $it" } ?: "Next Check-in"
 
-    LaunchedEffect(followUp.id) {
+    LaunchedEffect(currentFollowUp.id) {
         while (true) {
             try {
-                val remoteEvents = ApiClient.apiService.getTimeline(followUp.id)
-                events = remoteEvents.sortedBy { it.created_at }
+                val remoteEvents = ApiClient.apiService.getTimeline(currentFollowUp.id)
+                events = remoteEvents.sortedBy { it.effective_at ?: it.created_at }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -127,7 +146,20 @@ fun JourneyScreen(
         }
     }
 
-    val timelineItems = remember(events, followUp) {
+    // Compute appointment date from expiresAt
+    val appointmentDate = remember(currentFollowUp.expiresAt) {
+        runCatching {
+            Instant.parse(currentFollowUp.expiresAt).atZone(ZoneId.systemDefault()).toLocalDate()
+        }.getOrDefault(LocalDate.now().plusDays(currentFollowUp.daysRemaining.toLong()))
+    }
+
+    val startDate = remember(currentFollowUp.startsAt) {
+        runCatching {
+            Instant.parse(currentFollowUp.startsAt).atZone(ZoneId.systemDefault()).toLocalDate()
+        }.getOrDefault(LocalDate.now())
+    }
+
+    val timelineItems = remember(events, currentFollowUp) {
         val items = mutableListOf<TimelineItem>()
         var i = 0
         while (i < events.size) {
@@ -144,19 +176,137 @@ fun JourneyScreen(
             }
             i++
         }
-        
-        val daysDone = followUp.totalDays - followUp.daysRemaining
+
+        val daysDone = currentFollowUp.totalDays - currentFollowUp.daysRemaining
         val startFutureDay = if (daysDone < 1) 1 else daysDone + 1
-        
-        for (i in startFutureDay..followUp.totalDays) {
-            items.add(TimelineItem.FutureDay(dayNumber = i, label = "Day $i - Scheduled tracking"))
+
+        for (d in startFutureDay..currentFollowUp.totalDays) {
+            val futureDate = startDate.plusDays(d.toLong() - 1)
+            items.add(TimelineItem.FutureDay(dayNumber = d, label = "Day $d - Scheduled tracking", date = futureDate))
         }
         items
     }
 
+    // Date picker dialog
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = appointmentDate.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        val newDate = Instant.ofEpochMilli(millis).atZone(ZoneId.of("UTC")).toLocalDate()
+                        val newExpiresAt = newDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
+                        coroutineScope.launch {
+                            try {
+                                val updated = ApiClient.apiService.patchSubscription(
+                                    currentFollowUp.id,
+                                    UpdateSubscriptionRequest(expires_at = newExpiresAt)
+                                )
+                                // Re-fetch to rebuild FollowUpUi
+                                val subscriptions = ApiClient.apiService.getSubscriptions()
+                                val agents = ApiClient.apiService.getAgents().associateBy { it.id }
+                                val refreshed = subscriptions
+                                    .map { it.toFollowUpUi(agents) }
+                                    .find { it.id == currentFollowUp.id }
+                                if (refreshed != null) {
+                                    currentFollowUp = refreshed
+                                    onFollowUpUpdated?.invoke(refreshed)
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }
+                    showDatePicker = false
+                }) { Text("Confirm", color = Black) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    // Delete tracking confirmation
+    if (showDeleteConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            title = { Text("Delete Tracking") },
+            text = { Text("This will permanently delete this tracking and all its data. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirmDialog = false
+                    coroutineScope.launch {
+                        try {
+                            ApiClient.apiService.deleteSubscription(currentFollowUp.id)
+                            onBack()
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }) { Text("Delete", color = Color.Red) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     Box(modifier = modifier.fillMaxSize().background(White)) {
         Scaffold(
-            topBar = { MainTopBar(title = followUp.title, onOpenDrawer = onOpenDrawer) },
+            topBar = {
+                TopAppBar(
+                    title = { Text(currentFollowUp.title, fontWeight = FontWeight.Bold, fontSize = 22.sp, letterSpacing = (-1).sp) },
+                    navigationIcon = {
+                        IconButton(onClick = onOpenDrawer) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "Menu", tint = Black)
+                        }
+                    },
+                    actions = {
+                        // PDF Report icon
+                        IconButton(onClick = { onOpenReport?.invoke() }) {
+                            Icon(
+                                Icons.Filled.List,
+                                contentDescription = "Medical Report",
+                                tint = Black
+                            )
+                        }
+                        // 3-dot overflow menu
+                        Box {
+                            IconButton(onClick = { showMenu = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "Options", tint = Black)
+                            }
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Change appointment date") },
+                                    onClick = {
+                                        showMenu = false
+                                        showDatePicker = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Delete tracking", color = Color.Red) },
+                                    onClick = {
+                                        showMenu = false
+                                        showDeleteConfirmDialog = true
+                                    }
+                                )
+                            }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = White,
+                        titleContentColor = Black
+                    )
+                )
+            },
             containerColor = Color.Transparent,
             modifier = Modifier.fillMaxSize()
         ) { padding ->
@@ -180,8 +330,8 @@ fun JourneyScreen(
                         contentPadding = PaddingValues(vertical = 16.dp)
                     ) {
                         item {
-                            JourneySummary(followUp = followUp, events = events)
-                            TopInfoCard(followUp, periodName, isMeasurementWindow, nextWindowName, nextWindowTime)
+                            JourneySummary(followUp = currentFollowUp, events = events, appointmentDate = appointmentDate)
+                            TopInfoCard(currentFollowUp, periodName, isMeasurementWindow, nextWindowName, nextWindowTime)
                         }
 
                         if (events.isEmpty()) {
@@ -199,9 +349,9 @@ fun JourneyScreen(
                                         onDelete = { eventId ->
                                             coroutineScope.launch {
                                                 try {
-                                                    ApiClient.apiService.deleteTimelineEvent(followUp.id, eventId)
-                                                    val remoteEvents = ApiClient.apiService.getTimeline(followUp.id)
-                                                    events = remoteEvents.sortedBy { it.created_at }
+                                                    ApiClient.apiService.deleteTimelineEvent(currentFollowUp.id, eventId)
+                                                    val remoteEvents = ApiClient.apiService.getTimeline(currentFollowUp.id)
+                                                    events = remoteEvents.sortedBy { it.effective_at ?: it.created_at }
                                                 } catch (e: Exception) {
                                                     e.printStackTrace()
                                                 }
@@ -210,7 +360,18 @@ fun JourneyScreen(
                                     )
                                 }
                                 is TimelineItem.FutureDay -> {
-                                    FutureTimelineEvent(item.dayNumber, item.label)
+                                    val isPastDay = item.date.isBefore(LocalDate.now())
+                                    FutureTimelineEvent(
+                                        day = item.dayNumber,
+                                        label = item.label,
+                                        isPast = isPastDay,
+                                        onAddMissed = if (isPastDay) {
+                                            {
+                                                formEffectiveDate = item.date
+                                                isFormMode = true
+                                            }
+                                        } else null
+                                    )
                                 }
                             }
                         }
@@ -218,10 +379,13 @@ fun JourneyScreen(
                 }
 
                 BottomChatAndActions(
-                    followUp = followUp,
+                    followUp = currentFollowUp,
                     isMeasurementWindow = isMeasurementWindow,
                     periodName = periodName,
-                    onStartRoutine = { isFormMode = true }
+                    onStartRoutine = {
+                        formEffectiveDate = null
+                        isFormMode = true
+                    }
                 )
             }
         }
@@ -234,8 +398,9 @@ fun JourneyScreen(
                     .background(Black.copy(alpha = 0.5f))
             ) {
                 FocusModeForm(
-                    followUp = followUp,
+                    followUp = currentFollowUp,
                     periodName = periodName,
+                    effectiveDate = formEffectiveDate,
                     onClose = { isFormMode = false }
                 )
             }
@@ -267,7 +432,7 @@ private fun EmptyStateWelcome() {
 }
 
 @Composable
-private fun JourneySummary(followUp: FollowUpUi, events: List<TimelineEventResponse>) {
+private fun JourneySummary(followUp: FollowUpUi, events: List<TimelineEventResponse>, appointmentDate: LocalDate) {
     val expectedMeasurements = followUp.totalDays * (followUp.schedule?.size ?: 1)
     val actualMeasurements = events.count { it.type == "user" && !it.date_label.contains("Question") }
     val progressPercent = if (expectedMeasurements > 0) {
@@ -277,8 +442,7 @@ private fun JourneySummary(followUp: FollowUpUi, events: List<TimelineEventRespo
         (actualMeasurements.toFloat() / expectedMeasurements.toFloat()).coerceAtMost(1f)
     } else 0f
 
-    val apptDate = java.time.LocalDate.now().plusDays(followUp.daysRemaining.toLong())
-    val formattedApptDate = apptDate.format(java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.ENGLISH))
+    val formattedApptDate = appointmentDate.format(DateTimeFormatter.ofPattern("d MMM", java.util.Locale.ENGLISH))
 
     LpmCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
         Column(modifier = Modifier.padding(20.dp)) {
@@ -307,7 +471,7 @@ private fun SummaryItem(value: String, label: String) {
 @Composable
 private fun TopInfoCard(followUp: FollowUpUi, periodName: String, isWindow: Boolean, nextWindowName: String, nextWindowTime: LocalTime?) {
     var countdownText by remember { mutableStateOf("") }
-    
+
     LaunchedEffect(nextWindowTime, isWindow) {
         if (nextWindowTime == null || isWindow) {
             countdownText = ""
@@ -350,14 +514,14 @@ private fun TopInfoCard(followUp: FollowUpUi, periodName: String, isWindow: Bool
             }
             Spacer(modifier = Modifier.height(12.dp))
             Text("Next Appt: In ${followUp.daysRemaining} days", style = MaterialTheme.typography.bodySmall, color = Gray600)
-            
+
             val actionText = if (isWindow) {
                 "Next Action: $periodName Check-in (Now)"
             } else {
                 if (nextWindowTime != null) "Next Action: $nextWindowName (in $countdownText)"
                 else "Next Action: Check-in (Pending)"
             }
-            
+
             Text(
                 text = actionText,
                 style = MaterialTheme.typography.bodySmall,
@@ -400,7 +564,8 @@ private fun CentralTimelineEvent(userEvent: TimelineEventResponse, aiEvent: Time
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
         // --- USER EVENT ---
         val userDateLabel = userEvent.date_label.ifEmpty { "USER" }.uppercase()
-        val userTime = formatTime(userEvent.created_at)
+        val displayTime = userEvent.effective_at ?: userEvent.created_at
+        val userTime = formatTime(displayTime)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center,
@@ -435,10 +600,10 @@ private fun CentralTimelineEvent(userEvent: TimelineEventResponse, aiEvent: Time
         if (aiEvent != null) {
             val aiDateLabel = aiEvent.date_label.ifEmpty { "ASSISTANT" }.uppercase()
             val aiTime = formatTime(aiEvent.created_at)
-            
+
             // Connection line if we want visual link between the two boxes
             Row(modifier = Modifier.fillMaxWidth().height(16.dp)) {}
-            
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
@@ -469,29 +634,45 @@ private fun CentralTimelineEvent(userEvent: TimelineEventResponse, aiEvent: Time
 }
 
 @Composable
-private fun FutureTimelineEvent(day: Int, label: String) {
+private fun FutureTimelineEvent(day: Int, label: String, isPast: Boolean = false, onAddMissed: (() -> Unit)? = null) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp).alpha(0.5f),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp).alpha(if (isPast) 0.7f else 0.5f),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Spacer(modifier = Modifier.weight(0.45f))
         Box(modifier = Modifier.weight(0.1f), contentAlignment = Alignment.Center) {
-            Box(modifier = Modifier.size(10.dp).background(Gray200, CircleShape))
+            Box(modifier = Modifier.size(10.dp).background(if (isPast) Color(0xFFFFA726) else Gray200, CircleShape))
         }
         Column(
             modifier = Modifier.weight(0.45f).padding(start = 12.dp, end = 20.dp),
             horizontalAlignment = Alignment.Start
         ) {
-            Text("UPCOMING", style = MaterialTheme.typography.labelSmall, color = Gray400)
+            Text(
+                if (isPast) "MISSED" else "UPCOMING",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (isPast) Color(0xFFFFA726) else Gray400
+            )
             Spacer(modifier = Modifier.height(4.dp))
             Box(
                 modifier = Modifier
-                    .background(Gray50, RoundedCornerShape(12.dp))
-                    .border(1.dp, Gray200, RoundedCornerShape(12.dp))
+                    .background(if (isPast) Color(0xFFFFF3E0) else Gray50, RoundedCornerShape(12.dp))
+                    .border(1.dp, if (isPast) Color(0xFFFFA726).copy(alpha = 0.3f) else Gray200, RoundedCornerShape(12.dp))
                     .padding(12.dp)
             ) {
-                Text(label, style = MaterialTheme.typography.bodySmall, color = Gray600)
+                Column {
+                    Text(label, style = MaterialTheme.typography.bodySmall, color = if (isPast) Black else Gray600)
+                    if (isPast && onAddMissed != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "+ Add missed measurement",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Black,
+                            modifier = Modifier.clickable { onAddMissed() }
+                        )
+                    }
+                }
             }
         }
     }
@@ -569,15 +750,15 @@ private fun BottomChatAndActions(
 }
 
 @Composable
-private fun FocusModeForm(followUp: FollowUpUi, periodName: String, onClose: () -> Unit) {
+private fun FocusModeForm(followUp: FollowUpUi, periodName: String, effectiveDate: LocalDate? = null, onClose: () -> Unit) {
     val coroutineScope = rememberCoroutineScope()
     val answers = remember { androidx.compose.runtime.mutableStateMapOf<MeasurementStep, String>() }
     var isSending by remember { mutableStateOf(false) }
-    
+
     val steps = remember(followUp.schedule, periodName) {
         val list = mutableListOf<MeasurementStep>()
         val actions = followUp.schedule?.get(periodName) ?: listOf("pain", "temperature")
-        
+
         actions.forEach { action ->
             when (action.lowercase()) {
                 "pain" -> list.add(MeasurementStep.Pain)
@@ -595,17 +776,22 @@ private fun FocusModeForm(followUp: FollowUpUi, periodName: String, onClose: () 
         LaunchedEffect(Unit) { onClose() }
         return
     }
-    
+
     var currentStepIndex by remember { mutableIntStateOf(0) }
-    
+
     val advanceOrClose = {
         if (currentStepIndex < steps.size - 1) {
             currentStepIndex++
         } else {
             isSending = true
             coroutineScope.launch {
+                val dateLabel = if (effectiveDate != null) {
+                    "Retroactive - ${effectiveDate.format(DateTimeFormatter.ofPattern("MMM d"))}"
+                } else {
+                    periodName
+                }
                 val content = buildString {
-                    appendLine("Routine Check-in ($periodName):")
+                    appendLine("Routine Check-in ($dateLabel):")
                     answers[MeasurementStep.Pain]?.let { appendLine("• Pain Level: $it/10") }
                     answers[MeasurementStep.Temperature]?.let { appendLine("• Temperature: $it °C") }
                     answers[MeasurementStep.Photo]?.let { appendLine("• Photo: $it") }
@@ -613,7 +799,11 @@ private fun FocusModeForm(followUp: FollowUpUi, periodName: String, onClose: () 
                 try {
                     ApiClient.apiService.postTimelineEvent(
                         followUp.id,
-                        TimelineEventRequest(content = content.trim(), date_label = periodName)
+                        TimelineEventRequest(
+                            content = content.trim(),
+                            date_label = dateLabel,
+                            effective_date = effectiveDate?.format(DateTimeFormatter.ISO_LOCAL_DATE)
+                        )
                     )
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -649,8 +839,13 @@ private fun FocusModeForm(followUp: FollowUpUi, periodName: String, onClose: () 
             color = White
         ) {
             Column(modifier = Modifier.padding(24.dp).fillMaxWidth()) {
+                val headerText = if (effectiveDate != null) {
+                    "Add missed measurement — ${effectiveDate.format(DateTimeFormatter.ofPattern("EEEE, MMM d"))}"
+                } else {
+                    "Please enter your measurement"
+                }
                 Text(
-                    "Please enter your measurement",
+                    headerText,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = Black,
@@ -713,7 +908,7 @@ private fun FocusModeForm(followUp: FollowUpUi, periodName: String, onClose: () 
                                         }
                                     }
                                     Spacer(modifier = Modifier.height(16.dp))
-                                    
+
                                     OutlinedTextField(
                                         value = temp,
                                         onValueChange = { temp = it },

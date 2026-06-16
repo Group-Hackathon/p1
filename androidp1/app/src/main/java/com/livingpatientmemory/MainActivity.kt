@@ -76,7 +76,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class AppScreen {
-    Splash, Welcome, Home, NewFollowUp, Journey, Routine, Notifications, Profile
+    Splash, Welcome, Home, NewFollowUp, Journey, Routine, Notifications, Profile, Report
 }
 
 @Composable
@@ -289,8 +289,17 @@ private fun AppRoot() {
                 } else {
                     JourneyScreen(
                         followUp = followUp,
-                        onBack = { screen = AppScreen.Home },
-                        onOpenDrawer = { scope.launch { drawerState.open() } }
+                        onBack = {
+                            refreshKey++
+                            screen = AppScreen.Home
+                        },
+                        onOpenDrawer = { scope.launch { drawerState.open() } },
+                        onOpenReport = { screen = AppScreen.Report },
+                        onFollowUpUpdated = { updated ->
+                            selectedFollowUp = updated
+                            // Also update the list
+                            followUps = followUps.map { if (it.id == updated.id) updated else it }
+                        }
                     )
                 }
             }
@@ -315,6 +324,18 @@ private fun AppRoot() {
             AppScreen.Notifications -> NotificationsScreen(
                 onBack = { screen = AppScreen.Home }
             )
+
+            AppScreen.Report -> {
+                val followUp = selectedFollowUp
+                if (followUp == null) {
+                    screen = AppScreen.Journey
+                } else {
+                    ReportScreen(
+                        followUp = followUp,
+                        onBack = { screen = AppScreen.Journey }
+                    )
+                }
+            }
         }
     }
 }

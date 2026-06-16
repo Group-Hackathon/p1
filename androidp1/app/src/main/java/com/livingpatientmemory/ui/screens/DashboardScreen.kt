@@ -40,7 +40,9 @@ data class FollowUpUi(
     val progress: Float,
     val isActive: Boolean,
     val rules: com.livingpatientmemory.data.model.FollowUpRules?,
-    val schedule: Map<String, List<String>>?
+    val schedule: Map<String, List<String>>?,
+    val startsAt: String = "",
+    val expiresAt: String = ""
 )
 
 @Composable
@@ -223,7 +225,9 @@ fun SubscriptionResponse.toFollowUpUi(agents: Map<String, AgentResponse>): Follo
     val elapsedDays = ChronoUnit.DAYS.between(start, now).coerceAtLeast(0)
     val daysRemaining = ChronoUnit.DAYS.between(now, end).coerceAtLeast(0).toInt()
     val progress = (elapsedDays.toFloat() / totalDays.toFloat()).coerceIn(0f, 1f)
-    val title = agents[agent_id]?.name ?: agent_id.replace("-", " ").replaceFirstChar { it.uppercase() }
+    val startDateStr = start.toString().take(10)
+    val agent = agents[agent_id]
+    val title = parameters?.get("title")?.toString() ?: agent?.name ?: "Tracking from $startDateStr"
 
     var parsedRules: com.livingpatientmemory.data.model.FollowUpRules? = null
     val rulesMap = parameters?.get("rules") as? Map<*, *>
@@ -255,6 +259,8 @@ fun SubscriptionResponse.toFollowUpUi(agents: Map<String, AgentResponse>): Follo
         progress = progress,
         isActive = daysRemaining > 0,
         rules = parsedRules,
-        schedule = parsedSchedule
+        schedule = parsedSchedule,
+        startsAt = starts_at,
+        expiresAt = expires_at
     )
 }
