@@ -1,6 +1,7 @@
 # Pre-Appointment 1
 
-A mobile companion that prepares your medical appointments for you.
+**Pre-Appointment 1** is an ecosystem of tools designed to ensure medical data is never lost. 
+The first application of this suite is **Pre-Appointment 1 (P1)**, a mobile companion that prepares your medical appointments for you.
 
 ## The problem
 
@@ -10,7 +11,7 @@ Healthcare data is fragmented, and the most valuable part of it, what happens to
 
 ## What we are building
 
-Pre-Appointment 1 is a mobile application driven by an autonomous on-device agent that collects medically useful data in the period before a medical appointment, or during a doctor-prescribed follow-up.
+**Pre-Appointment 1** (the mobile application) is driven by an autonomous on-device agent that collects medically useful data in the period before a medical appointment, or during a doctor-prescribed follow-up.
 
 Every day, the agent:
 
