@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Living Patient Memory"
+rootProject.name = "Pre-Appointment 1"
 include(":app")

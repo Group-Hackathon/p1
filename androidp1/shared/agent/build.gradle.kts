@@ -31,7 +31,7 @@ kotlin {
 }
 
 android {
-    namespace = "com.livingpatientmemory.shared.agent"
+    namespace = "com.preappointment1.app.shared.agent"
     compileSdk = 34
     defaultConfig {
         minSdk = 24

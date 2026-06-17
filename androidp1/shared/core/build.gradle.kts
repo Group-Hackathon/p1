@@ -31,7 +31,7 @@ kotlin {
 }
 
 android {
-    namespace = "com.livingpatientmemory.shared.core"
+    namespace = "com.preappointment1.app.shared.core"
     compileSdk = 34
     defaultConfig {
         minSdk = 24

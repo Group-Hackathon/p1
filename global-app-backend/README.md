@@ -1,6 +1,6 @@
 # Global App Backend (Central Server)
 
-This directory represents the central, global application backend for **Living Patient Memory**. 
+This directory represents the central, global application backend for **Pre-Appointment 1**. 
 
 While sensitive medical records and photos are kept isolated in each user's private backend instance (VPC), the central server handles the global orchestrations, user accounts, agent catalogs, and payments.
 

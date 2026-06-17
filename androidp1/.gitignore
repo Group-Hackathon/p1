@@ -17,3 +17,4 @@ captures/
 # Secrets
 .env
 *.key
+*.keystore

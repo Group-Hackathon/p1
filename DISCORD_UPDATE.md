@@ -2,7 +2,7 @@
 
 Hey team! 
 
-The workspace for **Project 1 (Living Patient Memory)** is fully initialized for dev. Here is the current state and how you can jump in:
+The workspace for **Project 1 (Pre-Appointment 1)** is fully initialized for dev. Here is the current state and how you can jump in:
 
 ## Current Setup & Architecture
 

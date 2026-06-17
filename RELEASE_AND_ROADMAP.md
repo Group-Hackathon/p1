@@ -1,4 +1,4 @@
-# Living Patient Memory - Version 1.0.3
+# Pre-Appointment 1 - Version 1.0.3
 
 ## New Features & Commercial Upgrades
 - **Dynamic Onboarding & Monetization**: Implemented a dynamic pricing model based on tracking duration (0.20€/day, capped at 5.99€). The AI analysis is now presented as a "proprietary intelligent technology" analyzing thousands of medical records (no "Gemini" branding).

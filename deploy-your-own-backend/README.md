@@ -1,6 +1,6 @@
 # Deploy Your Own Backend (Self-Hosted Instance)
 
-This folder contains the configurations and instructions to deploy your own private backend node (**VPC** - Virtual Private Cloud) for **Living Patient Memory**.
+This folder contains the configurations and instructions to deploy your own private backend node (**VPC** - Virtual Private Cloud) for **Pre-Appointment 1**.
 
 By deploying your own instance, you ensure that **you are the sole owner and custodian of your medical records**. No central database stores your symptoms, metrics, or photos.
 
@@ -98,7 +98,7 @@ docker compose up -d
 
 Once the stack is running:
 1. Log in to the command-line setup wizard on the server to generate a **Pairing QR Code**.
-2. Open the **Living Patient Memory** mobile app.
+2. Open the **Pre-Appointment 1** mobile app.
 3. Scan the QR Code. The app will extract the connection credentials and API endpoints, establishing a direct connection between your phone and your private server.
 
 ---

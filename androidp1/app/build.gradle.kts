@@ -4,13 +4,13 @@ plugins {
 }
 
 android {
-    namespace = "com.livingpatientmemory"
-    compileSdk = 34
+    namespace = "com.preappointment1.app"
+    compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.livingpatientmemory"
+        applicationId = "com.preappointment1.app"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 
@@ -20,8 +20,23 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("release.keystore")
+            val keystorePropertiesFile = rootProject.file("local.properties")
+            val keystoreProperties = java.util.Properties()
+            if (keystorePropertiesFile.exists()) {
+                keystoreProperties.load(java.io.FileInputStream(keystorePropertiesFile))
+            }
+            storePassword = keystoreProperties["RELEASE_STORE_PASSWORD"] as String? ?: ""
+            keyAlias = keystoreProperties["RELEASE_KEY_ALIAS"] as String? ?: ""
+            keyPassword = keystoreProperties["RELEASE_KEY_PASSWORD"] as String? ?: ""
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

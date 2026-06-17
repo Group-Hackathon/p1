@@ -2,7 +2,7 @@
 
 ## 1. Core Application Pipeline
 
-The patient journey through Living Patient Memory is designed to be frictionless, deterministic, and medically sound.
+The patient journey through Pre-Appointment 1 is designed to be frictionless, deterministic, and medically sound.
 
 ### Phase 1: Intake & Agent Selection
 1. **App Launch:** The user opens the app to start a new follow-up period.
@@ -30,7 +30,7 @@ The patient journey through Living Patient Memory is designed to be frictionless
 
 ## 2. Our Competitive Advantage: The Validated Script Database
 
-What truly sets Living Patient Memory apart from generic AI health assistants is our approach to the collection protocol. 
+What truly sets Pre-Appointment 1 apart from generic AI health assistants is our approach to the collection protocol. 
 
 ### The Flaw of Current AI in Healthcare
 Most AI health apps act as generic chatbots. They ask open-ended questions and generate dynamic, unpredictable follow-up plans. This is a liability. A dynamically generated plan cannot be peer-reviewed, cannot guarantee medical relevance, and produces inconsistent datasets that doctors cannot trust.

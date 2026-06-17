@@ -1,6 +1,6 @@
 # Turbovec & RAG Integration Vision
 
-Currently, Living Patient Memory uses a direct prompt generation approach with Gemini to build personalized follow-up plans. The prompt is constructed dynamically by passing the user's symptoms, appointment date, and selected device rules (temperature, smartwatch, etc.).
+Currently, Pre-Appointment 1 uses a direct prompt generation approach with Gemini to build personalized follow-up plans. The prompt is constructed dynamically by passing the user's symptoms, appointment date, and selected device rules (temperature, smartwatch, etc.).
 
 ## The Future: `turbovec` & `fllowpatientDB`
 

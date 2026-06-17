@@ -1,4 +1,4 @@
-# Living Patient Memory
+# Pre-Appointment 1
 
 A mobile companion that prepares your medical appointments for you.
 
@@ -10,7 +10,7 @@ Healthcare data is fragmented, and the most valuable part of it, what happens to
 
 ## What we are building
 
-Living Patient Memory is a mobile application driven by an autonomous on-device agent that collects medically useful data in the period before a medical appointment, or during a doctor-prescribed follow-up.
+Pre-Appointment 1 is a mobile application driven by an autonomous on-device agent that collects medically useful data in the period before a medical appointment, or during a doctor-prescribed follow-up.
 
 Every day, the agent:
 
@@ -27,7 +27,7 @@ The doctor opens one page and sees: what happened, when it started, how it evolv
 
 Medical data is the most sensitive data there is. We do not want it, and we do not store it.
 
-Living Patient Memory uses a self-deployed backend model: every user (or family, or clinic) deploys their own small backend instance with one command, on any cloud provider or on a self-hosted machine at home. The mobile application talks only to that personal instance.
+Pre-Appointment 1 uses a self-deployed backend model: every user (or family, or clinic) deploys their own small backend instance with one command, on any cloud provider or on a self-hosted machine at home. The mobile application talks only to that personal instance.
 
 The consequence is structural, not contractual:
 

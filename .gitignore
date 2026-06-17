@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 *.key
+*.keystore
 *.pem
 credentials.json
 service-account*.json
