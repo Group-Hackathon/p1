@@ -22,6 +22,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
+import android.app.Activity
+import com.preappointment1.app.billing.BillingManager
 import com.preappointment1.app.data.AuthHelper
 import com.preappointment1.app.data.api.ApiClient
 import com.preappointment1.app.data.model.RecommendRequest
@@ -64,6 +67,51 @@ fun OnboardingScreen(
     var generatedSchedule by remember { mutableStateOf<Map<String, List<String>>?>(null) }
 
     val scope = rememberCoroutineScope()
+    
+    val purchaseSuccess by BillingManager.purchaseSuccessFlow.collectAsState()
+
+    LaunchedEffect(purchaseSuccess) {
+        if (purchaseSuccess != null) {
+            BillingManager.clearPurchaseSuccess()
+            isStarting = true
+            scope.launch {
+                try {
+                    if (!AuthHelper.ensureAuthenticated()) throw Exception("Authentication required")
+                    val profileId = AuthHelper.ensureProfile() ?: throw IllegalStateException("Profile not found")
+                    val duration = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), appointmentDate).toInt().coerceAtLeast(1)
+                    val rulesMap = mapOf(
+                        "temperature" to ruleTemperature,
+                        "pain" to rulePain,
+                        "photos" to rulePhotos,
+                        "smartwatch" to ruleSmartwatch,
+                        "blood_pressure" to ruleBp
+                    )
+                    val params = mutableMapOf<String, Any>(
+                        "title" to generatedTitle,
+                        "symptoms" to symptomText,
+                        "next_appointment" to appointmentDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                        "rules" to rulesMap,
+                        "plan" to generatedPlan
+                    )
+                    generatedSchedule?.let { params["schedule"] = it }
+
+                    val response = ApiClient.apiService.createSubscription(
+                        SubscriptionRequest(
+                            profile_id = profileId,
+                            agent_id = "dynamic-plan",
+                            duration_days = duration,
+                            parameters = params
+                        )
+                    )
+                    onFollowUpCreated(response.id)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                } finally {
+                    isStarting = false
+                }
+            }
+        }
+    }
 
     Scaffold(
         topBar = { 
@@ -156,43 +204,7 @@ fun OnboardingScreen(
                         appointmentDate = appointmentDate,
                         isLoading = isStarting,
                         onConfirm = {
-                            isStarting = true
-                            scope.launch {
-                                try {
-                                    if (!AuthHelper.ensureAuthenticated()) throw Exception("Authentication required")
-                                    val profileId = AuthHelper.ensureProfile() ?: throw IllegalStateException("Profile not found")
-                                    val duration = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), appointmentDate).toInt().coerceAtLeast(1)
-                                    val rulesMap = mapOf(
-                                        "temperature" to ruleTemperature,
-                                        "pain" to rulePain,
-                                        "photos" to rulePhotos,
-                                        "smartwatch" to ruleSmartwatch,
-                                        "blood_pressure" to ruleBp
-                                    )
-                                    val params = mutableMapOf<String, Any>(
-                                        "title" to generatedTitle,
-                                        "symptoms" to symptomText,
-                                        "next_appointment" to appointmentDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                                        "rules" to rulesMap,
-                                        "plan" to generatedPlan
-                                    )
-                                    generatedSchedule?.let { params["schedule"] = it }
-
-                                    val response = ApiClient.apiService.createSubscription(
-                                        SubscriptionRequest(
-                                            profile_id = profileId,
-                                            agent_id = "dynamic-plan",
-                                            duration_days = duration,
-                                            parameters = params
-                                        )
-                                    )
-                                    onFollowUpCreated(response.id)
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                } finally {
-                                    isStarting = false
-                                }
-                            }
+                            // Handled via Purchase Flow and LaunchedEffect above
                         },
                         onManualSetup = { step = 6 }
                     )
@@ -386,7 +398,18 @@ private fun PremiumPreviewStep(
     onManualSetup: () -> Unit
 ) {
     val durationDays = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), appointmentDate).toInt().coerceAtLeast(1)
-    val price = (durationDays * 0.20).coerceAtMost(5.99)
+    
+    val productId = when {
+        durationDays <= 5 -> "p1_pack_short"
+        durationDays <= 14 -> "p1_pack_medium"
+        else -> "p1_pack_long"
+    }
+
+    val prices by BillingManager.pricesFlow.collectAsState()
+    val displayPrice = prices[productId] ?: "Loading..."
+    
+    val context = LocalContext.current
+    val activity = context as? Activity
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         // Highlighting the premium/proprietary aspect
@@ -426,9 +449,11 @@ private fun PremiumPreviewStep(
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        // Fake Payment Button
+        // Google Play Payment Button
         Button(
-            onClick = onConfirm,
+            onClick = {
+                if (activity != null) BillingManager.launchPurchaseFlow(activity, productId)
+            },
             modifier = Modifier.fillMaxWidth().height(56.dp),
             shape = RoundedCornerShape(8.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Black)
@@ -437,7 +462,7 @@ private fun PremiumPreviewStep(
                 CircularProgressIndicator(modifier = Modifier.size(24.dp), color = White, strokeWidth = 2.dp)
             } else {
                 Text(
-                    String.format(Locale.US, "Auto-setup & Start — €%.2f", price),
+                    "Pay $displayPrice via Google Play",
                     color = White,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold

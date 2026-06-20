@@ -93,7 +93,10 @@ function goTo(screenId) {
   // Screen-specific init
   if (screenId === 'home') updateHome();
   if (screenId === 'new-tracking') renderNewTrackingStep();
-  if (screenId === 'detail') updateDetail();
+  if (screenId === 'detail') {
+    // Allow viewing even without a tracking (uses hardcoded data)
+    updateDetail();
+  }
   if (screenId === 'routine') { state.routineStep = 1; renderRoutineStep(); }
   if (screenId === 'profile') updateProfile();
 }
@@ -496,99 +499,205 @@ function startTracking() {
   goTo('detail');
 }
 
-// ═══ TRACKING DETAIL ═══
+// ═══ HARDCODED JOURNEY DATA (6 days) ═══
+const journeyData = {
+  title: 'Post-Surgery Recovery',
+  doctorName: 'Dr. Martinez',
+  appointmentDate: '2026-06-20',
+  startDate: '2026-06-13',
+  totalDays: 8,
+  days: [
+    {
+      day: 1, date: '2026-06-13', status: 'completed', time: '08:32',
+      temp: 37.8, feeling: 6,
+      note: 'Wound area is sore, took ibuprofen at 8am.',
+      aiText: 'Temperature at 37.8°C is common in the first 48 hours post-surgery. Continue monitoring. Contact your doctor if it rises above 38.5°C.',
+    },
+    {
+      day: 2, date: '2026-06-14', status: 'completed', time: '09:10',
+      temp: 37.5, feeling: 5,
+      note: 'Slept better. Less throbbing around the wound.',
+      aiText: 'Temperature down 0.3°C — good sign. Pain reduction noted. Keep the wound clean and dry.',
+    },
+    {
+      day: 3, date: '2026-06-15', status: 'completed', time: '08:45',
+      temp: 37.2, feeling: 4,
+      note: 'Wound looks less red today. Walking is easier.',
+      aiText: 'Steady improvement. Redness reduction indicates healthy healing. Recovery on track for your June 20 appointment.',
+    },
+    {
+      day: 4, date: '2026-06-16', status: 'completed', time: '08:20',
+      temp: 37.0, feeling: 3,
+      note: 'Able to walk without discomfort now.',
+      aiText: 'Back to normal temperature range. Mobility improvement is very encouraging. Keep up the routine.',
+    },
+    {
+      day: 5, date: '2026-06-17', status: 'completed', time: '09:05',
+      temp: 36.8, feeling: 2,
+      note: 'Feeling almost normal. Very little soreness.',
+      aiText: 'Excellent recovery. Temperature stable, pain minimal. You\'re ahead of the typical curve. Your doctor will be pleased.',
+    },
+    { day: 6, date: '2026-06-18', status: 'today' },
+    { day: 7, date: '2026-06-19', status: 'future' },
+    { day: 8, date: '2026-06-20', status: 'future' },
+  ],
+};
+
 function updateDetail() {
   const t = state.trackings[state.selectedTracking];
-  if (!t) return;
+  const data = t ? {
+    ...journeyData,
+    title: t.title,
+    appointmentDate: t.appointmentDate,
+    doctorName: t.doctorName || journeyData.doctorName,
+  } : journeyData;
 
-  document.getElementById('detailTitle').textContent = t.title;
-  document.getElementById('detApptDate').textContent =
-    new Date(t.appointmentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-
-  // Build timeline
-  const vt = document.getElementById('vtContainer');
-  if (!vt) return;
-  let html = '';
-  t.messages.forEach((m, idx) => {
-    const side = (idx % 2 === 0) ? 'left' : 'right';
-    html += `
-      <div class="vt-node ${side}">
-        <div class="vt-dot"></div>
-        <div class="vt-bubble">
-          <div class="vt-date">${m.date || 'Record'}</div>
-          <div class="vt-text">${m.text}</div>
-        </div>
-      </div>
-    `;
-  });
-  
-  // Render Current Pending Card
-  if (t.isActive && !t.routineDoneToday) {
-    html += `
-      <div class="vt-input-wrapper">
-        <div class="vt-input-card">
-          <h3>Evening Check-in</h3>
-          <p>What is your current pain level?</p>
-          <div style="display:flex; gap:8px;">
-            <input type="range" min="0" max="10" value="3" style="flex:1" id="vtQuickPain" />
-            <span style="font-weight:bold; width:20px; text-align:right;" id="vtQuickPainVal">3</span>
-          </div>
-          <div class="vt-chat-row">
-            <input type="text" id="vtChatInput" placeholder="Or type a message..." />
-            <button onclick="submitVtForm()">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-            </button>
-          </div>
-        </div>
-      </div>
-    `;
-  } else {
-    html += `
-      <div class="vt-input-wrapper">
-        <div style="background:var(--gray-100); padding:12px 24px; border-radius:20px; font-size:13px; color:var(--gray-500); font-weight:600;">
-          All caught up for today!
-        </div>
-      </div>
-    `;
-  }
-  
-  vt.innerHTML = html;
-  
-  const painSlider = document.getElementById('vtQuickPain');
-  if (painSlider) {
-    painSlider.oninput = (e) => {
-      document.getElementById('vtQuickPainVal').textContent = e.target.value;
-    };
-  }
-  
-  // Scroll to bottom
-  window.scrollTo(0, document.body.scrollHeight);
+  document.getElementById('detailTitle').textContent = data.title;
+  renderApptBar(data);
+  renderProgressStrip(data);
+  renderTimeline(data);
 }
 
-function submitVtForm() {
-  const t = state.trackings[state.selectedTracking];
-  if (!t) return;
-  
-  const chatInput = document.getElementById('vtChatInput').value.trim();
-  const pain = document.getElementById('vtQuickPain').value;
-  
-  let msgText = chatInput ? chatInput : `Pain level recorded at ${pain}/10.`;
-  
-  t.messages.push({
-    type: 'user',
-    text: msgText,
-    date: `Day ${t.currentDay} - Evening`
+function renderApptBar(data) {
+  const bar = document.getElementById('journeyApptBar');
+  const appt = new Date(data.appointmentDate);
+  const now = new Date();
+  const daysLeft = Math.max(0, Math.ceil((appt - now) / 86400000));
+  const apptStr = appt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+  bar.innerHTML = `
+    <div class="journey-appt-bar-left">
+      <div class="journey-appt-label">Appointment</div>
+      <div class="journey-appt-date">${apptStr}${data.doctorName ? ' — ' + data.doctorName : ''}</div>
+      <div class="journey-appt-days">${daysLeft} day${daysLeft !== 1 ? 's' : ''} remaining</div>
+    </div>
+    <div class="journey-appt-bar-right">
+      <button class="journey-pdf-btn" onclick="showToast('PDF report preview')" title="View PDF Report">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+        </svg>
+      </button>
+    </div>
+  `;
+}
+
+function renderProgressStrip(data) {
+  const strip = document.getElementById('journeyProgressStrip');
+  const completed = data.days.filter(d => d.status === 'completed').length;
+  const pct = Math.round((completed / data.totalDays) * 100);
+  strip.innerHTML = `
+    <div class="journey-progress-bar">
+      <div class="journey-progress-fill" style="width: ${pct}%"></div>
+    </div>
+    <div class="journey-progress-text">${completed}/${data.totalDays}</div>
+  `;
+}
+
+function renderTimeline(data) {
+  const tl = document.getElementById('journeyTimeline');
+  let html = '';
+
+  // --- APPOINTMENT DATE MARKER (top) ---
+  const apptDate = new Date(data.appointmentDate);
+  const apptStr = apptDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  html += `<div class="jt-date-marker"><div class="jt-date-marker-pill">Appointment — ${apptStr}</div></div>`;
+
+  // --- DAY ENTRIES (reversed: newest first) ---
+  const reversed = [...data.days].reverse();
+  reversed.forEach(day => {
+    const date = new Date(day.date);
+    const dateStr = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+    if (day.status === 'completed') {
+      // User entry (right side)
+      html += `
+        <div class="jt-entry completed">
+          <div class="jt-dot"></div>
+          <div class="jt-user-bubble">
+            <div class="jt-bubble-header">
+              <span class="jt-bubble-label">Day ${day.day} — ${dateStr}</span>
+              <span class="jt-bubble-time">${day.time}</span>
+            </div>
+            <div class="jt-data-row">
+              <div class="jt-data-item">
+                <span class="jt-data-value">${day.temp.toFixed(1)}</span>
+                <span class="jt-data-unit">°C</span>
+              </div>
+              <div class="jt-data-sep"></div>
+              <div class="jt-data-item">
+                <span class="jt-data-value">${day.feeling}</span>
+                <span class="jt-data-unit">/10 pain</span>
+              </div>
+            </div>
+            ${day.note ? `<div class="jt-note">${day.note}</div>` : ''}
+          </div>
+        </div>
+      `;
+      // AI response (left side)
+      if (day.aiText) {
+        html += `
+          <div class="jt-entry ai-response">
+            <div class="jt-dot"></div>
+            <div class="jt-ai-bubble">
+              <div class="jt-ai-badge"><div class="jt-ai-badge-dot"></div> Assistant</div>
+              <div class="jt-ai-text">${day.aiText}</div>
+            </div>
+          </div>
+        `;
+      }
+    } else if (day.status === 'today') {
+      html += `
+        <div class="jt-entry today">
+          <div class="jt-dot"></div>
+          <div class="jt-today-card">
+            <div class="jt-today-label">Day ${day.day} — Today</div>
+            <div class="jt-today-title">${dateStr}</div>
+            <button class="jt-today-btn" onclick="goTo('routine')">Fill measurements</button>
+          </div>
+        </div>
+      `;
+    } else if (day.status === 'future') {
+      html += `
+        <div class="jt-entry future">
+          <div class="jt-dot"></div>
+          <div class="jt-future-bubble">
+            <div class="jt-bubble-header">
+              <span class="jt-bubble-label">Day ${day.day} — ${dateStr}</span>
+            </div>
+            <div class="jt-future-text">Scheduled tracking</div>
+          </div>
+        </div>
+      `;
+    } else if (day.status === 'missed') {
+      html += `
+        <div class="jt-entry missed">
+          <div class="jt-dot"></div>
+          <div class="jt-missed-bubble">
+            <div class="jt-bubble-header">
+              <span class="jt-bubble-label">Day ${day.day} — ${dateStr}</span>
+              <span class="jt-bubble-label" style="color:var(--black)">Missed</span>
+            </div>
+            <div class="jt-missed-add" onclick="goTo('routine')">+ Add missed measurement</div>
+          </div>
+        </div>
+      `;
+    }
   });
-  
-  t.routineDoneToday = true;
-  t.currentDay = Math.min(t.currentDay + 1, t.totalDays);
-  t.daysLeft = Math.max(0, t.daysLeft - 1);
-  
-  // Simulate AI response
-  setTimeout(() => {
-    t.messages.push({ type: 'ai', date: `Day ${t.currentDay - 1} - Assistant`, text: "I've noted that down in your medical journal." });
-    updateDetail();
-  }, 1000);
+
+  // --- START DATE MARKER (bottom) ---
+  const startDate = new Date(data.startDate);
+  const startStr = startDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  html += `<div class="jt-date-marker"><div class="jt-date-marker-pill start">Started — ${startStr}</div></div>`;
+
+  tl.innerHTML = html;
+}
+
+function sendJourneyMessage() {
+  const input = document.getElementById('journeyChatInput');
+  const msg = input.value.trim();
+  if (!msg) return;
+  input.value = '';
+  showToast('Message sent — AI is processing...');
 }
 
 function toggleManageModal() {

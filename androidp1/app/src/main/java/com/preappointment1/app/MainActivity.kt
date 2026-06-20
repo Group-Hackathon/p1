@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import com.preappointment1.app.data.AuthHelper
 import com.preappointment1.app.data.SessionManager
 import com.preappointment1.app.data.api.ApiClient
+import com.preappointment1.app.billing.BillingManager
 import com.preappointment1.app.ui.screens.*
 import com.preappointment1.app.ui.theme.Black
 import com.preappointment1.app.ui.theme.Gray200
@@ -56,6 +57,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         SessionManager.init(this)
+        BillingManager.initialize(this)
 
         CoroutineScope(Dispatchers.IO).launch {
             val ok = AuthHelper.ensureAuthenticated()
