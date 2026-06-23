@@ -16,7 +16,6 @@ To unlock the Production release, Google requires 20 testers to keep the app ins
 ## iOS (App Store)
 The iOS SwiftUI clone is fully operational. We are generating the final build via Xcode to push to App Store Connect for TestFlight.
 
-## D-U-N-S Registration
-For the official medical release, we have requested our D-U-N-S number via Apple. Once processed by Dun & Bradstreet, we will transfer the apps to our official company accounts.
+#we will transfer the apps to our official company accounts type O"RGANIZATION PLAYSTORE & APPLE IF REQUIRED."
 
-Please download the Android app and share your feedback.
+
