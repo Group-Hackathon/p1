@@ -296,32 +296,54 @@ private fun DateStep(
     onDateChange: (LocalDate) -> Unit,
     onNext: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
+    val datePickerState = rememberDatePickerState(
+        initialSelectedDateMillis = date
+            .atStartOfDay(java.time.ZoneId.of("UTC"))
+            .toInstant()
+            .toEpochMilli()
+    )
+
+    // Sync selection back to parent whenever it changes
+    LaunchedEffect(datePickerState.selectedDateMillis) {
+        datePickerState.selectedDateMillis?.let { millis ->
+            val selected = java.time.Instant.ofEpochMilli(millis)
+                .atZone(java.time.ZoneId.of("UTC"))
+                .toLocalDate()
+            if (selected != date) onDateChange(selected)
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         LpmSectionTitle("When is your appointment?")
         Spacer(modifier = Modifier.height(8.dp))
         LpmBodyText("Select the exact date of your next medical checkup.")
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        LpmCard {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = date.format(DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.ENGLISH)),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
+        // Embedded graphical calendar (no dialog)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            DatePicker(
+                state = datePickerState,
+                showModeToggle = false,
+                colors = DatePickerDefaults.colors(
+                    selectedDayContainerColor = Black,
+                    selectedDayContentColor = White,
+                    todayDateBorderColor = Black,
+                    todayContentColor = Black,
+                    containerColor = White,
+                    headlineContentColor = Black,
+                    weekdayContentColor = Gray600,
+                    dayContentColor = Black,
+                    disabledDayContentColor = Gray200
                 )
-                Row {
-                    OutlinedButton(onClick = { onDateChange(date.minusDays(1)) }) { Text("-") }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    OutlinedButton(onClick = { onDateChange(date.plusDays(1)) }) { Text("+") }
-                }
-            }
+            )
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(24.dp))
         LpmPrimaryButton(text = "Continue", onClick = onNext)
         Spacer(modifier = Modifier.height(24.dp))
     }

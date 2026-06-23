@@ -30,6 +30,12 @@ androidp1/captures/
 global-app-backend/server
 global-app-backend/.env
 
+# Web prototype and Cloudflare Pages / Wrangler
+webprivacyrulespublicconfidentiality*/
+.wrangler/
+*.wrangler/
+wrangler-account.json
+
 # Logs
 *.log
 
