@@ -6,7 +6,7 @@ Here is a brief update on the MVP Publication Phase.
 The core application development (iOS/Android front-end, Go backend, and embedded AI agent) is complete. We are now deploying to the stores.
 
 ## Android (Google Play Store)
-The app is officially published in Closed Testing (Alpha). We successfully bypassed the strict "Health Apps" restrictions.
+The app is officially published in Closed Testing (Alpha). We successfully bypassed the strict "Health Apps" restrictions(for how long will see....
 
 **Action Required: 20 Testers Needed**
 To unlock the Production release, Google requires 20 testers to keep the app installed for 14 continuous days.
