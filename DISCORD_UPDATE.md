@@ -12,6 +12,25 @@ The app is officially published in Closed Testing (Alpha). We successfully bypas
 To unlock the Production release, Google requires 20 testers to keep the app installed for 14 continuous days.
 1. Join the testing group: `testers-community@googlegroups.com` https://groups.google.com/u/5/g/stackstatsgeotestergroup
 2. Download the app here: [Google Play Store Link](https://play.google.com/store/apps/details?id=com.preappointment1.app)
+redeemcode no pay : A8V43NG3DNDQN2UZTXXTUBH	
+083A4U3QBDP19EYCB384TAS	
+BRKUBNCBNHASAZ4U0P4DACE	
+WR5XNRY3N4S0V24497TRTYV	
+0EAGS7ZQASKW4CB3MSVSQMQ	
+XBUK5Q0J9FKA4J7GWLDJ3U5	
+P4QBEFQ65WGDLL4KKR14EMK	
+6AT8CCYVRUQ7BSZB47LNJZF	
+NA34N9EQF7DRH9MVXMU4WU4	
+K3MN9WRRKFRHMQDQHT9BSXH	
+GH6YWWUP5BAFBQ4ZESG0W46	
+R70ZXM6X3AR04A6GRGAWKK3	
+HBWD09MQCACT2NU3HBE5TXV	
+XWM59HQ7H46PYBUYNJAFPU2	
+NKNR42KHKPSQG8MGJU2QT8C	
+A3CEGU325MNDDGA3SYJWCSN	
+FKZM7GQMP5Q1R0CFPP8AG4E	
+BSXKAHAQC4UDSF6R7X8DSQS	
+1R2RT9QS25NDWLPKETK1VN4	
 
 ## iOS (App Store)
 The iOS SwiftUI clone is fully operational. We are generating the final build via Xcode to push to App Store Connect for TestFlight.
