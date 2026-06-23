@@ -1,0 +1,163 @@
+//
+//  ContentView.swift
+//  P1
+//
+//  Created by Gary on 21/06/2026.
+//
+
+import SwiftUI
+
+enum AppRoute: Equatable {
+    case welcome
+    case onboarding
+    case dashboard
+    case profile
+    case notifications
+    case journey(FollowUpUi)
+    case report(FollowUpUi)
+    case routine(FollowUpUi)
+    
+    static func == (lhs: AppRoute, rhs: AppRoute) -> Bool {
+        switch (lhs, rhs) {
+        case (.welcome, .welcome), (.onboarding, .onboarding), (.dashboard, .dashboard), (.profile, .profile), (.notifications, .notifications):
+            return true
+        case (.journey(let l), .journey(let r)):
+            return l.id == r.id
+        case (.routine(let l), .routine(let r)):
+            return l.id == r.id
+        default:
+            return false
+        }
+    }
+}
+
+struct ContentView: View {
+    @State private var currentRoute: AppRoute = .welcome
+    @State private var isAuthenticated: Bool = false
+    @State private var isDrawerOpen = false
+    
+    var body: some View {
+        ZStack {
+            switch currentRoute {
+            case .welcome:
+                WelcomeScreen(
+                    onStartTracking: { currentRoute = .onboarding },
+                    onGoToHome: { currentRoute = .dashboard }
+                )
+            case .onboarding:
+                OnboardingScreen(
+                    onBack: { currentRoute = .welcome },
+                    onFollowUpCreated: { subscriptionId in
+                        // Short delay then navigate directly to the new journey
+                        Task {
+                            try? await Task.sleep(nanoseconds: 800_000_000) // 0.8s
+                            do {
+                                let subs = try await ApiService.shared.getSubscriptions()
+                                let agents = try await ApiService.shared.getAgents()
+                                if let sub = subs.first(where: { $0.id == subscriptionId }) {
+                                    let agent = agents.first(where: { $0.id == sub.agent_id })
+                                    let title = agent?.name ?? "My Tracking"
+                                    let formatter = ISO8601DateFormatter()
+                                    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                                    let start = formatter.date(from: sub.starts_at) ?? Date()
+                                    let end = formatter.date(from: sub.expires_at) ?? Calendar.current.date(byAdding: .day, value: 14, to: start)!
+                                    let totalSeconds = end.timeIntervalSince(start)
+                                    let elapsedSeconds = Date().timeIntervalSince(start)
+                                    let progress = max(0, min(1, Float(elapsedSeconds / totalSeconds)))
+                                    let daysRemaining = max(0, Int(end.timeIntervalSince(Date()) / 86400))
+                                    let followUp = FollowUpUi(
+                                        id: sub.id,
+                                        title: title,
+                                        daysRemaining: daysRemaining,
+                                        totalDays: Int(totalSeconds / 86400),
+                                        progress: progress,
+                                        isActive: daysRemaining > 0,
+                                        startsAt: sub.starts_at,
+                                        expiresAt: sub.expires_at,
+                                        rules: sub.parameters?.rules
+                                    )
+                                    await MainActor.run {
+                                        currentRoute = .journey(followUp)
+                                    }
+                                } else {
+                                    await MainActor.run { currentRoute = .dashboard }
+                                }
+                            } catch {
+                                await MainActor.run { currentRoute = .dashboard }
+                            }
+                        }
+                    }
+                )
+            case .dashboard:
+                DashboardScreen(
+                    onNewFollowUp: { currentRoute = .onboarding },
+                    onOpenJourney: { followUp in
+                        currentRoute = .journey(followUp)
+                    },
+                    onOpenNotifications: {
+                        currentRoute = .notifications
+                    },
+                    onOpenDrawer: {
+                        withAnimation { isDrawerOpen = true }
+                    }
+                )
+            case .journey(let followUp):
+                JourneyScreen(
+                    followUp: followUp,
+                    onOpenDrawer: { withAnimation { isDrawerOpen = true } },
+                    onOpenReport: { currentRoute = .report(followUp) },
+                    onStartRoutine: { currentRoute = .routine(followUp) }
+                )
+            case .report(let followUp):
+                ReportScreen(
+                    followUp: followUp,
+                    onBack: { currentRoute = .journey(followUp) }
+                )
+            case .routine(let followUp):
+                DailyRoutineScreen(
+                    followUpId: followUp.id,
+                    followUpTitle: followUp.title,
+                    rules: followUp.rules,
+                    onBack: { currentRoute = .journey(followUp) },
+                    onComplete: { currentRoute = .journey(followUp) }
+                )
+            case .notifications:
+                NotificationsScreen(onBack: { currentRoute = .dashboard })
+            case .profile:
+                ProfileScreen(
+                    onOpenDrawer: { withAnimation { isDrawerOpen = true } },
+                    onLogout: { currentRoute = .welcome }
+                )
+            }
+            
+            if currentRoute != .welcome && currentRoute != .onboarding {
+                SideMenuView(isOpen: $isDrawerOpen, onNavigate: { route in
+                    currentRoute = route
+                })
+            }
+        }
+        .animation(.easeInOut, value: currentRoute)
+        .task {
+            // Only auto-login if we already have a token
+            if SessionManager.shared.getToken() != nil {
+                isAuthenticated = await AuthHelper.shared.ensureAuthenticated()
+                if isAuthenticated {
+                    _ = await AuthHelper.shared.ensureProfile()
+                    currentRoute = .dashboard
+                }
+            } else {
+                // Authenticate silently in the background, but let the user see the Welcome Screen
+                Task {
+                    isAuthenticated = await AuthHelper.shared.ensureAuthenticated()
+                    if isAuthenticated {
+                        _ = await AuthHelper.shared.ensureProfile()
+                    }
+                }
+            }
+        }
+    }
+}
+
+#Preview {
+    ContentView()
+}

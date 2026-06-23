@@ -32,3 +32,17 @@ global-app-backend/.env
 
 # Logs
 *.log
+
+# iOS / Xcode
+iosp1/**/build/
+iosp1/**/DerivedData/
+iosp1/**/xcuserdata/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.xcuserstate
