@@ -11,7 +11,7 @@ The app is officially published in Closed Testing (Alpha). We successfully bypas
 **Action Required: 20 Testers Needed**
 To unlock the Production release, Google requires 20 testers to keep the app installed for 14 continuous days.
 1. Join the testing group: `testers-community@googlegroups.com` [https://groups.google.com/g/stackstatsgeotestergroup](https://groups.google.com/g/testers-community)
-2. Download the app here: [Google Play Store Link](https://play.google.com/store/apps/details?id=com.preappointment1.app)
+2. Download the app here after testing in same page : https://play.google.com/apps/testing/com.preappointment1.app
 use test card or redeemcode no pay : A8V43NG3DNDQN2UZTXXTUBH	
 083A4U3QBDP19EYCB384TAS	
 BRKUBNCBNHASAZ4U0P4DACE	
