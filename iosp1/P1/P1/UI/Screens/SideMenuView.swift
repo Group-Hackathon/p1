@@ -57,7 +57,7 @@ struct SideMenuView: View {
                 
                 Spacer().frame(height: 24)
                 
-                Text("MY TRACKINGS")
+                Text(String(localized: "my_trackings"))
                     .font(.caption)
                     .fontWeight(.bold)
                     .kerning(1)
@@ -96,7 +96,7 @@ struct SideMenuView: View {
                                     .font(.title3)
                                     .foregroundColor(.gray)
                                 
-                                Text("Start new tracking")
+                                Text(String(localized: "start_new_tracking"))
                                     .font(.headline)
                                     .foregroundColor(.gray)
                                 Spacer()
@@ -141,9 +141,10 @@ struct SideMenuView: View {
                 return FollowUpUi(
                     id: sub.id, title: agent?.name ?? "Tracking",
                     daysRemaining: daysRemaining, totalDays: 14,
-                    progress: 0, isActive: daysRemaining > 0,
+                    progress: 0, isActive: Date() < end,
                     startsAt: sub.starts_at, expiresAt: sub.expires_at,
-                    rules: sub.parameters?.rules
+                    rules: sub.parameters?.rules,
+                    schedule: sub.parameters?.schedule
                 )
             }
         } catch {}

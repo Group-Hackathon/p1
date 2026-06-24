@@ -71,10 +71,11 @@ struct ContentView: View {
                                         daysRemaining: daysRemaining,
                                         totalDays: Int(totalSeconds / 86400),
                                         progress: progress,
-                                        isActive: daysRemaining > 0,
+                                        isActive: Date() < end,
                                         startsAt: sub.starts_at,
                                         expiresAt: sub.expires_at,
-                                        rules: sub.parameters?.rules
+                                        rules: sub.parameters?.rules,
+                                        schedule: sub.parameters?.schedule
                                     )
                                     await MainActor.run {
                                         currentRoute = .journey(followUp)

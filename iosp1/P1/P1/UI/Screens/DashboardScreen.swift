@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct FollowUpUi: Identifiable {
+struct FollowUpUi: Identifiable, Equatable {
     let id: String
     let title: String
     let daysRemaining: Int
@@ -10,6 +10,7 @@ struct FollowUpUi: Identifiable {
     let startsAt: String
     let expiresAt: String
     let rules: FollowUpRules?
+    let schedule: [String: [String]]?
 }
 
 struct DashboardScreen: View {
@@ -68,12 +69,12 @@ struct DashboardScreen: View {
                 .padding()
             } else if followUps.filter({ $0.isActive }).isEmpty {
                 VStack(spacing: 16) {
-                    Text("Welcome to Pre-Appointment 1")
+                    Text(String(localized: "welcome_title"))
                         .font(.title2)
                         .fontWeight(.black)
                         .multilineTextAlignment(.center)
                     
-                    Text("You have no active trackings selected. Start a new tracking protocol.")
+                    Text(String(localized: "welcome_desc"))
                         .font(.body)
                         .foregroundColor(Color(UIColor.systemGray))
                         .multilineTextAlignment(.center)
@@ -81,7 +82,7 @@ struct DashboardScreen: View {
                     
                     Spacer().frame(height: 32)
                     
-                    LpmPrimaryButton(text: "Start a new tracking", action: onNewFollowUp)
+                    LpmPrimaryButton(text: String(localized: "start_new_tracking"), action: onNewFollowUp)
                 }
                 .padding()
             } else {
@@ -151,10 +152,11 @@ struct DashboardScreen: View {
                     daysRemaining: daysRemaining,
                     totalDays: Int(totalSeconds / 86400),
                     progress: progress,
-                    isActive: daysRemaining > 0,
+                    isActive: Date() < end,
                     startsAt: sub.starts_at,
                     expiresAt: sub.expires_at,
-                    rules: sub.parameters?.rules
+                    rules: sub.parameters?.rules,
+                    schedule: sub.parameters?.schedule
                 )
             }
             

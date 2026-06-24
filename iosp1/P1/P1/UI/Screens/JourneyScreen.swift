@@ -10,6 +10,9 @@ struct JourneyScreen: View {
     @State private var chatText = ""
     @State private var isSending = false
     @State private var currentFollowUp: FollowUpUi
+    @State private var isLoading = true
+    @State private var isMeasurementWindow = false
+    @State private var activePeriodName = ""
     
     // Menu & dialogs
     @State private var showDatePicker = false
@@ -114,7 +117,7 @@ struct JourneyScreen: View {
                                 .foregroundColor(.black)
                         }
                         Menu {
-                            Button("Change appointment date") {
+                            Button(String(localized: "menu_change_appt_date")) {
                                 // Init picker to current expiry
                                 let fmt = ISO8601DateFormatter()
                                 fmt.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -124,7 +127,7 @@ struct JourneyScreen: View {
                             Button(role: .destructive) {
                                 showDeleteConfirm = true
                             } label: {
-                                Label("Delete tracking", systemImage: "trash")
+                                Label(String(localized: "menu_delete_tracking"), systemImage: "trash")
                             }
                         } label: {
                             Image(systemName: "ellipsis")
@@ -185,6 +188,10 @@ struct JourneyScreen: View {
                 BottomInput(
                     text: $chatText,
                     isSending: isSending,
+                    isMeasurementWindow: isMeasurementWindow,
+                    isLoading: isLoading,
+                    periodName: activePeriodName,
+                    events: events,
                     onStartRoutine: onStartRoutine,
                     onSendQuestion: {
                         guard !chatText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -216,6 +223,10 @@ struct JourneyScreen: View {
                 .animation(.spring(response: 0.35), value: showMissedForm)
             }
         }
+        .onChange(of: followUp) { newValue in
+            currentFollowUp = newValue
+            Task { await reloadTimeline() }
+        }
         .task {
             await reloadTimeline()
         }
@@ -227,9 +238,16 @@ struct JourneyScreen: View {
                     if Task.isCancelled { break }
                     await reloadTimeline()
                 }
-            } catch {
-                // Task cancelled
-            }
+            } catch {}
+        }
+        // Time evaluation loop for milestones
+        .task {
+            do {
+                while !Task.isCancelled {
+                    updateMeasurementWindow()
+                    try await Task.sleep(nanoseconds: 1_000_000_000)
+                }
+            } catch {}
         }
         // Date picker sheet
         .sheet(isPresented: $showDatePicker) {
@@ -263,16 +281,16 @@ struct JourneyScreen: View {
             }
         }
         // Delete tracking confirm
-        .alert("Delete Tracking", isPresented: $showDeleteConfirm) {
+        .alert(String(localized: "dialog_delete_tracking_title"), isPresented: $showDeleteConfirm) {
             Button("Delete", role: .destructive) {
                 Task { await deleteTracking() }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This will permanently delete this tracking and all its data. This cannot be undone.")
+            Text(String(localized: "dialog_delete_tracking_desc"))
         }
         // Delete event confirm
-        .alert("Delete Record", isPresented: $showDeleteEventConfirm) {
+        .alert(String(localized: "dialog_delete_record_title"), isPresented: $showDeleteEventConfirm) {
             Button("Delete", role: .destructive) {
                 if let ev = eventToDelete {
                     Task { await deleteEvent(ev.id) }
@@ -280,7 +298,7 @@ struct JourneyScreen: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Are you sure you want to delete this record?")
+            Text(String(localized: "dialog_delete_record_desc"))
         }
     }
 
@@ -289,9 +307,11 @@ struct JourneyScreen: View {
             let fetched = try await ApiService.shared.getTimeline(subscriptionId: currentFollowUp.id)
             await MainActor.run {
                 events = fetched.sorted { ($0.effective_at ?? $0.created_at) < ($1.effective_at ?? $1.created_at) }
+                isLoading = false
             }
         } catch {
             print("Timeline fetch failed: \(error)")
+            await MainActor.run { isLoading = false }
         }
     }
 
@@ -348,7 +368,8 @@ struct JourneyScreen: View {
                         daysRemaining: daysLeft, totalDays: Int(totalSec / 86400),
                         progress: progress, isActive: daysLeft > 0,
                         startsAt: sub.starts_at, expiresAt: sub.expires_at,
-                        rules: sub.parameters?.rules
+                        rules: sub.parameters?.rules,
+                        schedule: sub.parameters?.schedule
                     )
                 }
             }
@@ -363,6 +384,55 @@ struct JourneyScreen: View {
             await MainActor.run { onOpenDrawer() }
         } catch {
             print("Delete tracking failed: \(error)")
+        }
+    }
+
+    private func updateMeasurementWindow() {
+        guard let schedule = currentFollowUp.schedule else {
+            if isMeasurementWindow != false { isMeasurementWindow = false }
+            return
+        }
+        
+        let now = Date()
+        let cal = Calendar.current
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "HH:mm"
+        
+        let currentString = timeFormatter.string(from: now)
+        guard let currentTime = timeFormatter.date(from: currentString) else { return }
+        
+        var isWindow = false
+        var activeName = ""
+        
+        for (period, times) in schedule {
+            for timeStr in times {
+                guard let time = timeFormatter.date(from: timeStr) else { continue }
+                
+                let windowEnd = cal.date(byAdding: .hour, value: 4, to: time)!
+                
+                let crossesMidnight = windowEnd < time
+                if crossesMidnight {
+                    if currentTime >= time || currentTime < windowEnd {
+                        isWindow = true
+                        activeName = period
+                        break
+                    }
+                } else {
+                    if currentTime >= time && currentTime < windowEnd {
+                        isWindow = true
+                        activeName = period
+                        break
+                    }
+                }
+            }
+            if isWindow { break }
+        }
+        
+        if isMeasurementWindow != isWindow {
+            isMeasurementWindow = isWindow
+        }
+        if activePeriodName != activeName {
+            activePeriodName = activeName
         }
     }
 }
@@ -441,7 +511,7 @@ private struct JourneySummaryCard: View {
             VStack(spacing: 16) {
                 HStack {
                     VStack {
-                        Text("Appt Date")
+                        Text(String(localized: "summary_appt_date"))
                             .font(.caption)
                             .foregroundColor(.gray)
                         Text(appointmentDateStr)
@@ -450,7 +520,7 @@ private struct JourneySummaryCard: View {
                     }
                     Spacer()
                     VStack {
-                        Text("Days left")
+                        Text(String(localized: "summary_days_left"))
                             .font(.caption)
                             .foregroundColor(.gray)
                         Text("\(followUp.daysRemaining)")
@@ -459,7 +529,7 @@ private struct JourneySummaryCard: View {
                     }
                     Spacer()
                     VStack {
-                        Text("Complete")
+                        Text(String(localized: "summary_complete"))
                             .font(.caption)
                             .foregroundColor(.gray)
                         Text("\(completionPercent)%")
@@ -486,7 +556,7 @@ private struct JourneySummaryCard: View {
 
 private struct EmptyStateTimeline: View {
     var body: some View {
-        Text("Your personalized protocol has started. Let's begin your first measurement.")
+        Text(String(localized: "empty_state_welcome"))
             .font(.body)
             .foregroundColor(.gray)
             .multilineTextAlignment(.center)
@@ -564,28 +634,37 @@ private struct TimelineEventRow: View {
     }
 }
 
-private struct BottomInput: View {
+struct BottomInput: View {
     @Binding var text: String
     let isSending: Bool
+    let isMeasurementWindow: Bool
+    let isLoading: Bool
+    let periodName: String
+    let events: [TimelineEventResponse]
     let onStartRoutine: () -> Void
     let onSendQuestion: () -> Void
 
     var body: some View {
         VStack {
-            Button(action: onStartRoutine) {
-                Text("📋 Fill measurements")
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.black)
-                    .cornerRadius(12)
+            let isInitial = !isLoading && events.isEmpty
+            if isInitial || isMeasurementWindow {
+                Button(action: onStartRoutine) {
+                    Text(String(localized: "btn_fill_measurements") + (periodName.isEmpty ? "" : " (\(periodName))"))
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.black)
+                        .cornerRadius(12)
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 8)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .animation(.easeInOut, value: isMeasurementWindow)
             }
-            .padding(.horizontal)
-            .padding(.bottom, 8)
 
             HStack {
-                TextField("Ask a question...", text: $text)
+                TextField(String(localized: "chat_placeholder"), text: $text)
                     .padding()
                     .background(Color(UIColor.systemGray6))
                     .cornerRadius(24)

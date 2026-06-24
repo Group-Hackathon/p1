@@ -40,6 +40,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.preappointment1.app.R
 import androidx.core.content.ContextCompat
 import com.preappointment1.app.MainTopBar
 import com.preappointment1.app.data.api.ApiClient
@@ -83,13 +85,24 @@ fun JourneyScreen(
 
     // Mutable followUp state for date changes
     var currentFollowUp by remember { mutableStateOf(followUp) }
+    LaunchedEffect(followUp) {
+        currentFollowUp = followUp
+    }
+    
+    var isLoading by remember { mutableStateOf(true) }
 
     // Menu state
     var showMenu by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
-    val now = LocalTime.now()
+    var now by remember { mutableStateOf(LocalTime.now()) }
+    LaunchedEffect(Unit) {
+        while(true) {
+            delay(1000)
+            now = LocalTime.now()
+        }
+    }
     val schedule = currentFollowUp.schedule ?: mapOf(
         "08:00" to listOf("pain", "temperature"),
         "20:00" to listOf("pain", "temperature", "photo")
@@ -105,7 +118,14 @@ fun JourneyScreen(
 
     for (time in sortedTimes) {
         val windowEnd = time.plusHours(4)
-        if ((now.isAfter(time) || now == time) && now.isBefore(windowEnd)) {
+        val crossesMidnight = windowEnd.isBefore(time)
+        val isWindow = if (crossesMidnight) {
+            now.isAfter(time) || now == time || now.isBefore(windowEnd)
+        } else {
+            (now.isAfter(time) || now == time) && now.isBefore(windowEnd)
+        }
+        
+        if (isWindow) {
             activeWindowTime = time
             isMeasurementWindow = true
             break
@@ -124,23 +144,26 @@ fun JourneyScreen(
         }
     }
 
-    val isInitial = events.isEmpty()
+    val isInitial = !isLoading && events.isEmpty()
     if (isInitial && sortedTimes.isNotEmpty() && !isMeasurementWindow) {
         isMeasurementWindow = true
         activeWindowTime = null
     }
 
-    val periodName = activeWindowTime?.toString() ?: if (isInitial) "Initial" else "Routine"
+    val periodName = activeWindowTime?.toString() ?: if (isInitial) stringResource(R.string.period_initial) else stringResource(R.string.period_routine)
 
-    val nextWindowName = nextWindowTime?.toString()?.let { "Check-in at $it" } ?: "Next Check-in"
+    val nextWindowName = nextWindowTime?.toString()?.let { stringResource(R.string.check_in_at, it) } ?: stringResource(R.string.next_check_in)
 
     LaunchedEffect(currentFollowUp.id) {
+        isLoading = true
         while (true) {
             try {
                 val remoteEvents = ApiClient.apiService.getTimeline(currentFollowUp.id)
                 events = remoteEvents.sortedBy { it.effective_at ?: it.created_at }
+                isLoading = false
             } catch (e: Exception) {
                 e.printStackTrace()
+                isLoading = false
             }
             delay(3000)
         }
@@ -221,10 +244,10 @@ fun JourneyScreen(
                         }
                     }
                     showDatePicker = false
-                }) { Text("Confirm", color = Black) }
+                }) { Text(stringResource(R.string.action_confirm), color = Black) }
             },
             dismissButton = {
-                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+                TextButton(onClick = { showDatePicker = false }) { Text(stringResource(R.string.action_cancel)) }
             }
         ) {
             DatePicker(state = datePickerState)
@@ -235,8 +258,8 @@ fun JourneyScreen(
     if (showDeleteConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirmDialog = false },
-            title = { Text("Delete Tracking") },
-            text = { Text("This will permanently delete this tracking and all its data. This cannot be undone.") },
+            title = { Text(stringResource(R.string.dialog_delete_tracking_title)) },
+            text = { Text(stringResource(R.string.dialog_delete_tracking_desc)) },
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteConfirmDialog = false
@@ -248,10 +271,10 @@ fun JourneyScreen(
                             e.printStackTrace()
                         }
                     }
-                }) { Text("Delete", color = Color.Red) }
+                }) { Text(stringResource(R.string.action_delete), color = Color.Red) }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteConfirmDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { showDeleteConfirmDialog = false }) { Text(stringResource(R.string.action_cancel)) }
             }
         )
     }
@@ -285,14 +308,14 @@ fun JourneyScreen(
                                 onDismissRequest = { showMenu = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Change appointment date") },
+                                    text = { Text(stringResource(R.string.menu_change_appt_date)) },
                                     onClick = {
                                         showMenu = false
                                         showDatePicker = true
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Delete tracking", color = Color.Red) },
+                                    text = { Text(stringResource(R.string.menu_delete_tracking), color = Color.Red) },
                                     onClick = {
                                         showMenu = false
                                         showDeleteConfirmDialog = true
@@ -422,7 +445,7 @@ private fun EmptyStateWelcome() {
                 .padding(16.dp)
         ) {
             Text(
-                "Your personalized protocol has started. Let's begin your first measurement.",
+                stringResource(R.string.empty_state_welcome),
                 style = MaterialTheme.typography.bodyMedium,
                 color = Gray600,
                 textAlign = TextAlign.Center
@@ -450,9 +473,9 @@ private fun JourneySummary(followUp: FollowUpUi, events: List<TimelineEventRespo
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                SummaryItem(value = formattedApptDate, label = "Appt Date")
-                SummaryItem(value = "${followUp.daysRemaining}", label = "Days left")
-                SummaryItem(value = "$progressPercent%", label = "Complete")
+                SummaryItem(value = formattedApptDate, label = stringResource(R.string.summary_appt_date))
+                SummaryItem(value = "${followUp.daysRemaining}", label = stringResource(R.string.summary_days_left))
+                SummaryItem(value = "$progressPercent%", label = stringResource(R.string.summary_complete))
             }
             Spacer(modifier = Modifier.height(16.dp))
             LpmProgressBar(progress = progressFloat)
@@ -505,7 +528,7 @@ private fun TopInfoCard(followUp: FollowUpUi, periodName: String, isWindow: Bool
                         .padding(horizontal = 12.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        if (followUp.isActive) "Ongoing" else "Completed",
+                        if (followUp.isActive) stringResource(R.string.status_ongoing) else stringResource(R.string.status_completed),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = Black
@@ -513,13 +536,13 @@ private fun TopInfoCard(followUp: FollowUpUi, periodName: String, isWindow: Bool
                 }
             }
             Spacer(modifier = Modifier.height(12.dp))
-            Text("Next Appt: In ${followUp.daysRemaining} days", style = MaterialTheme.typography.bodySmall, color = Gray600)
+            Text(stringResource(R.string.next_appt_in_days, followUp.daysRemaining), style = MaterialTheme.typography.bodySmall, color = Gray600)
 
             val actionText = if (isWindow) {
-                "Next Action: $periodName Check-in (Now)"
+                stringResource(R.string.next_action_now, periodName)
             } else {
-                if (nextWindowTime != null) "Next Action: $nextWindowName (in $countdownText)"
-                else "Next Action: Check-in (Pending)"
+                if (nextWindowTime != null) stringResource(R.string.next_action_in, nextWindowName, countdownText)
+                else stringResource(R.string.next_action_pending)
             }
 
             Text(
@@ -539,8 +562,8 @@ private fun CentralTimelineEvent(userEvent: TimelineEventResponse, aiEvent: Time
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete Record") },
-            text = { Text("Are you sure you want to delete this record?") },
+            title = { Text(stringResource(R.string.dialog_delete_record_title)) },
+            text = { Text(stringResource(R.string.dialog_delete_record_desc)) },
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteConfirm = false
@@ -649,7 +672,7 @@ private fun FutureTimelineEvent(day: Int, label: String, isPast: Boolean = false
             horizontalAlignment = Alignment.Start
         ) {
             Text(
-                if (isPast) "MISSED" else "UPCOMING",
+                if (isPast) stringResource(R.string.timeline_missed) else stringResource(R.string.timeline_upcoming),
                 style = MaterialTheme.typography.labelSmall,
                 color = if (isPast) Color(0xFFFFA726) else Gray400
             )
@@ -665,7 +688,7 @@ private fun FutureTimelineEvent(day: Int, label: String, isPast: Boolean = false
                     if (isPast && onAddMissed != null) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "+ Add missed measurement",
+                            text = stringResource(R.string.timeline_add_missed),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = Black,
@@ -702,13 +725,13 @@ private fun BottomChatAndActions(
                     shape = RoundedCornerShape(8.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Black)
                 ) {
-                    Text("📋 Fill measurements ($periodName)", color = White, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.btn_fill_measurements, periodName), color = White, fontWeight = FontWeight.SemiBold)
                 }
             } else {
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
-                    placeholder = { Text("Ask a question...", color = Gray400) },
+                    placeholder = { Text(stringResource(R.string.chat_placeholder), color = Gray400) },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(24.dp),
                     colors = OutlinedTextFieldDefaults.colors(

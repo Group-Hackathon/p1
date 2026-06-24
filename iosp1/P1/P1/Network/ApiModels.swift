@@ -83,6 +83,7 @@ struct SubscriptionResponse: Codable, Identifiable {
 
 struct SubscriptionParameters: Codable {
     let rules: FollowUpRules?
+    let schedule: [String: [String]]?
 }
 
 struct UpdateSubscriptionRequest: Codable {
@@ -108,7 +109,7 @@ struct TrackingRules: Codable {
     var custom: String = ""
 }
 
-struct FollowUpRules: Codable {
+struct FollowUpRules: Codable, Equatable {
     var temperature: Bool? = true
     var pain: Bool? = true
     var photos: Bool? = true

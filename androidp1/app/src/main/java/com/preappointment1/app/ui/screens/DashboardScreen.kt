@@ -257,7 +257,7 @@ fun SubscriptionResponse.toFollowUpUi(agents: Map<String, AgentResponse>): Follo
         daysRemaining = daysRemaining,
         totalDays = totalDays,
         progress = progress,
-        isActive = daysRemaining > 0,
+        isActive = now.isBefore(end),
         rules = parsedRules,
         schedule = parsedSchedule,
         startsAt = starts_at,

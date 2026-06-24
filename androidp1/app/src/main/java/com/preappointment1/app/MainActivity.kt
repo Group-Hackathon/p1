@@ -38,6 +38,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.preappointment1.app.R
 import com.preappointment1.app.data.AuthHelper
 import com.preappointment1.app.data.SessionManager
 import com.preappointment1.app.data.api.ApiClient
@@ -154,14 +156,14 @@ private fun AppRoot() {
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
-                            Text("Patient", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Black)
-                            Text("View profile", fontSize = 12.sp, color = com.preappointment1.app.ui.theme.Gray600)
+                            Text(stringResource(R.string.patient_name_placeholder), fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Black)
+                            Text(stringResource(R.string.view_profile), fontSize = 12.sp, color = com.preappointment1.app.ui.theme.Gray600)
                         }
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "MY TRACKINGS",
+                        text = stringResource(R.string.my_trackings),
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
@@ -210,7 +212,7 @@ private fun AppRoot() {
                                 Icon(Icons.Outlined.AddCircle, contentDescription = "Add", tint = Gray400, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Text(
-                                    text = "Start new tracking",
+                                    text = stringResource(R.string.start_new_tracking),
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 16.sp,
                                     color = Gray400
@@ -239,7 +241,7 @@ private fun AppRoot() {
             AppScreen.Home -> Scaffold(
                 topBar = {
                     MainTopBar(
-                        title = "P1",
+                        title = stringResource(R.string.app_name),
                         onOpenDrawer = { scope.launch { drawerState.open() } },
                         hasPendingTasks = false, // could be dynamic later
                         onOpenNotifications = { screen = AppScreen.Notifications }
@@ -261,7 +263,7 @@ private fun AppRoot() {
             AppScreen.Profile -> Scaffold(
                 topBar = {
                     MainTopBar(
-                        title = "Profile",
+                        title = stringResource(R.string.profile_title),
                         onOpenDrawer = { scope.launch { drawerState.open() } }
                     )
                 }
@@ -398,7 +400,7 @@ private fun SplashScreen() {
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "P1",
+                    text = stringResource(R.string.app_name),
                     fontSize = 72.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = (-2).sp,
@@ -406,7 +408,7 @@ private fun SplashScreen() {
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "PRE-APPOINTMENT 1",
+                    text = stringResource(R.string.pre_appointment),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,
                     letterSpacing = 3.sp,
