@@ -58,11 +58,12 @@ To do:
 
 The currently documented project (KMP app with camera, permissions, background jobs, health platform integration; self-deployable backend; agent runtime; payments; four launch agents) is a nine-month project wearing a hackathon badge.
 
-Hackathon scope, decided:
+Hackathon scope, decided and executed:
 
-- Keep: the Android app (KMP structure), one template (wound monitoring), the daily collection loop, the cloud analysis agent, the physician briefing with share link.
-- Cut from the hackathon, keep in the architecture: the self-deploy flow (managed hosting only at first, self-hosting ships post-hackathon), Health Connect integration, in-app payments, the dermatology, fever and musculoskeletal agents.
-- The repository documentation may describe the full vision, but the build plan must only contain the kept list above.
+- **Architecture Pivot (RESOLVED):** Moved from Kotlin Multiplatform (KMP) to a **Mirrored Native strategy** (pure Kotlin Android + pure Swift iOS). This allowed for parallel velocity and eliminated the overhead of writing cross-platform bindings for complex native features like Camera, Background Jobs, and Health APIs.
+- Keep: the native apps, multiple agent templates, the daily collection loop, the cloud analysis agent, the physician briefing with share link.
+- Deferred: the self-deploy flow (managed hosting only at first, self-hosting ships post-hackathon) and Health Connect deep integration.
+- The repository documentation may describe the full vision, but the build plan must only contain the executed list above.
 
 ## 7. The doctor was designed for, but never consulted
 

@@ -1,5 +1,7 @@
-# Turbovec & RAG Integration Vision
+> [!WARNING]
+> **Archived Document:** The RAG / turbovec architecture is currently paused and is no longer an active development lead for the MVP. It remains here for historical reference.
 
+# Turbovec & RAG Integration Vision
 Currently, Pre-Appointment 1 uses a direct prompt generation approach with Gemini to build personalized follow-up plans. The prompt is constructed dynamically by passing the user's symptoms, appointment date, and selected device rules (temperature, smartwatch, etc.).
 
 ## The Future: `turbovec` & `fllowpatientDB`
