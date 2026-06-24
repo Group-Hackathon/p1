@@ -47,6 +47,17 @@ Key modules:
 | `app/android` | Android | Camera (CameraX), permissions, WorkManager jobs, Health Connect |
 | `app/ios` | iOS (post-hackathon) | AVFoundation capture, HealthKit, BGTaskScheduler |
 
+### Strategic Update (MVP Phase vs Scaling Phase)
+
+While Kotlin Multiplatform (KMP) was the original architectural vision (as outlined above), **for the MVP phase, we chose to build two completely native applications (Kotlin for Android, Swift for iOS).** 
+
+**Why this pivot for the MVP?**
+1. **Speed & Deep Native Integration:** The core features of Pre-Appointment 1 rely heavily on complex native capabilities (Camera overlays, Health Connect / HealthKit, background schedulers). Building these natively and mirroring the logic proved faster than setting up complex `expect/actual` bindings and KMP iOS integrations during a time-constrained hackathon.
+2. **Parallel Velocity:** Two pure native codebases allowed parallel development without blocking on shared module compilations.
+
+**Future Scaling Strategy:**
+If the product evolves to require deeply shared rendering logic, or if the team structure expands, the architecture will be re-evaluated. Depending on the team's affinities, we may migrate to **Flutter, React Native/Expo, or return to Kotlin Multiplatform**. However, to ensure rapid delivery and maximum stability during the MVP phase, maintaining a strictly mirrored native approach was the most pragmatic and efficient choice ;i think...
+
 ### The on-device agent
 
 The autonomous agent on the phone is a deterministic scheduler plus a lightweight LLM layer, not a free-running model:
