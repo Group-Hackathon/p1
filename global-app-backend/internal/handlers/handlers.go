@@ -278,6 +278,8 @@ type RecommendRequest struct {
 	Symptoms        string                 `json:"symptoms"`
 	AppointmentDate string                 `json:"appointment_date,omitempty"`
 	Rules           map[string]interface{} `json:"rules,omitempty"`
+	LocalTime       string                 `json:"local_time,omitempty"`
+	Timezone        string                 `json:"timezone,omitempty"`
 }
 
 // RecommendAgentHandler uses Gemini to find the best matching agent
@@ -304,6 +306,13 @@ func RecommendAgentHandler(db *pgxpool.Pool, geminiClient *gemini.Client) http.H
 			rulesBytes, _ := json.Marshal(req.Rules)
 			prompt += "Patient sensors and rules enabled: " + string(rulesBytes) + "\n"
 		}
+		if req.LocalTime != "" {
+			prompt += "Patient is starting the protocol NOW. Local time: " + req.LocalTime
+			if req.Timezone != "" {
+				prompt += " (" + req.Timezone + ")"
+			}
+			prompt += "\n"
+		}
 
 		prompt += `
 Based ONLY on this information, generate a short daily tracking plan.
@@ -318,7 +327,12 @@ Respond STRICTLY with a valid JSON object matching this schema:
   }
 }
 Do not include any markdown formatting, greetings, or disclaimers. Just the JSON object.
-Use 24h format for the time keys. The array should contain strings like "pain", "temperature", "photo", "smartwatch", "blood_pressure". Only include actions that were requested or enabled in the patient's rules.`
+Use 24h format for the time keys (HH:mm). The array should contain strings like "pain", "temperature", "photo". Only include actions that were requested or enabled in the patient's rules.
+Adapt check-in times intelligently to when the patient starts:
+- If they start mid-day or evening, include a first check-in within the next 1-2 hours (round to :00 or :30).
+- Keep 2-3 realistic check-ins per day (morning, afternoon, evening) — do not overload.
+- Put photo capture on evening slots when photos are enabled.
+- Do not schedule a morning slot that is already far in the past for today's start unless it remains useful tomorrow.`
 
 		resp, err := geminiClient.GenerateText(r.Context(), prompt)
 		if err != nil {
@@ -496,42 +510,86 @@ func (h *Handler) PatchSubscription(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(auth.UserIDKey).(string)
 
 	var req struct {
-		ExpiresAt string `json:"expires_at"`
+		ExpiresAt  string                 `json:"expires_at,omitempty"`
+		Parameters map[string]interface{} `json:"parameters,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
 		return
 	}
 
-	newExpiry, err := time.Parse(time.RFC3339, req.ExpiresAt)
-	if err != nil {
-		// Try date-only format
-		newExpiry, err = time.Parse("2006-01-02", req.ExpiresAt)
-		if err != nil {
-			http.Error(w, `{"error":"invalid date format, use RFC3339 or YYYY-MM-DD"}`, http.StatusBadRequest)
-			return
-		}
-		// Set to end of day
-		newExpiry = newExpiry.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+	if req.ExpiresAt == "" && len(req.Parameters) == 0 {
+		http.Error(w, `{"error":"nothing to update"}`, http.StatusBadRequest)
+		return
 	}
 
-	res, err := h.db.Exec(r.Context(),
-		`UPDATE subscriptions SET expires_at = $1 WHERE id = $2 AND profile_id IN (SELECT id FROM profiles WHERE user_id = $3)`,
-		newExpiry, subID, userID,
-	)
+	var paramsJSON []byte
+	err := h.db.QueryRow(r.Context(),
+		`SELECT parameters_json FROM subscriptions WHERE id = $1 AND profile_id IN (SELECT id FROM profiles WHERE user_id = $2)`,
+		subID, userID,
+	).Scan(&paramsJSON)
 	if err != nil {
-		http.Error(w, `{"error":"failed to update subscription"}`, http.StatusInternalServerError)
-		return
-	}
-	if res.RowsAffected() == 0 {
 		http.Error(w, `{"error":"subscription not found"}`, http.StatusNotFound)
 		return
+	}
+
+	var mergedParams map[string]interface{}
+	if len(paramsJSON) > 0 {
+		_ = json.Unmarshal(paramsJSON, &mergedParams)
+	}
+	if mergedParams == nil {
+		mergedParams = map[string]interface{}{}
+	}
+
+	if len(req.Parameters) > 0 {
+		for k, v := range req.Parameters {
+			mergedParams[k] = v
+		}
+	}
+
+	if req.ExpiresAt != "" {
+		newExpiry, err := time.Parse(time.RFC3339, req.ExpiresAt)
+		if err != nil {
+			newExpiry, err = time.Parse("2006-01-02", req.ExpiresAt)
+			if err != nil {
+				http.Error(w, `{"error":"invalid date format, use RFC3339 or YYYY-MM-DD"}`, http.StatusBadRequest)
+				return
+			}
+			newExpiry = newExpiry.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+		}
+
+		mergedJSON, _ := json.Marshal(mergedParams)
+		res, err := h.db.Exec(r.Context(),
+			`UPDATE subscriptions SET expires_at = $1, parameters_json = $2 WHERE id = $3 AND profile_id IN (SELECT id FROM profiles WHERE user_id = $4)`,
+			newExpiry, mergedJSON, subID, userID,
+		)
+		if err != nil {
+			http.Error(w, `{"error":"failed to update subscription"}`, http.StatusInternalServerError)
+			return
+		}
+		if res.RowsAffected() == 0 {
+			http.Error(w, `{"error":"subscription not found"}`, http.StatusNotFound)
+			return
+		}
+	} else {
+		mergedJSON, _ := json.Marshal(mergedParams)
+		res, err := h.db.Exec(r.Context(),
+			`UPDATE subscriptions SET parameters_json = $1 WHERE id = $2 AND profile_id IN (SELECT id FROM profiles WHERE user_id = $3)`,
+			mergedJSON, subID, userID,
+		)
+		if err != nil {
+			http.Error(w, `{"error":"failed to update subscription"}`, http.StatusInternalServerError)
+			return
+		}
+		if res.RowsAffected() == 0 {
+			http.Error(w, `{"error":"subscription not found"}`, http.StatusNotFound)
+			return
+		}
 	}
 
 	// Return updated subscription
 	var s subscriptionResponse
 	var startsAt, expiresAt time.Time
-	var paramsJSON []byte
 	err = h.db.QueryRow(r.Context(),
 		`SELECT s.id, s.profile_id, s.agent_id, s.status, s.private_backend_url, s.parameters_json, s.starts_at, s.expires_at
 		 FROM subscriptions s WHERE s.id = $1`, subID,

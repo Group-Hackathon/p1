@@ -44,6 +44,8 @@ import com.preappointment1.app.data.AuthHelper
 import com.preappointment1.app.data.SessionManager
 import com.preappointment1.app.data.api.ApiClient
 import com.preappointment1.app.billing.BillingManager
+import com.preappointment1.app.notifications.NotificationHelper
+import com.preappointment1.app.notifications.ScheduleReminderManager
 import com.preappointment1.app.ui.screens.*
 import com.preappointment1.app.ui.theme.Black
 import com.preappointment1.app.ui.theme.Gray200
@@ -60,6 +62,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         SessionManager.init(this)
         BillingManager.initialize(this)
+        NotificationHelper.createNotificationChannel(this)
 
         CoroutineScope(Dispatchers.IO).launch {
             val ok = AuthHelper.ensureAuthenticated()
@@ -85,6 +88,7 @@ private enum class AppScreen {
 
 @Composable
 private fun AppRoot() {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var screen by remember { mutableStateOf(AppScreen.Splash) }
     var refreshKey by remember { mutableIntStateOf(0) }
     var selectedFollowUp by remember { mutableStateOf<FollowUpUi?>(null) }
@@ -102,12 +106,15 @@ private fun AppRoot() {
             val subscriptions = ApiClient.apiService.getSubscriptions()
             val agents = ApiClient.apiService.getAgents().associateBy { it.id }
             followUps = subscriptions.map { it.toFollowUpUi(agents) }
+            ScheduleReminderManager.rescheduleActiveFollowUps(context, followUps)
             
             if (pendingFollowUpId != null) {
                 val found = followUps.find { it.id == pendingFollowUpId }
                 if (found != null) {
                     selectedFollowUp = found
                     screen = AppScreen.Journey
+                } else {
+                    screen = AppScreen.Home
                 }
                 pendingFollowUpId = null
             }
@@ -325,9 +332,16 @@ private fun AppRoot() {
                 }
             }
 
-            AppScreen.Notifications -> NotificationsScreen(
-                onBack = { screen = AppScreen.Home }
-            )
+            AppScreen.Notifications -> {
+                val activeFollowUp = followUps
+                    .filter { it.daysRemaining > 0 }
+                    .maxByOrNull { it.startsAt }
+                NotificationsScreen(
+                    activeFollowUp = activeFollowUp,
+                    onBack = { screen = AppScreen.Home },
+                    onScheduleUpdated = { refreshKey++ }
+                )
+            }
 
             AppScreen.Report -> {
                 val followUp = selectedFollowUp

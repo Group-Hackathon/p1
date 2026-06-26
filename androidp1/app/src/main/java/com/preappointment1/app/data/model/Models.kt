@@ -13,7 +13,9 @@ data class AuthResponse(
 data class RecommendRequest(
     val symptoms: String,
     val appointment_date: String? = null,
-    val rules: TrackingRulesDto? = null
+    val rules: TrackingRulesDto? = null,
+    val local_time: String? = null,
+    val timezone: String? = null
 )
 
 data class User(
@@ -121,5 +123,6 @@ data class TimelineEventResponse(
 )
 
 data class UpdateSubscriptionRequest(
-    val expires_at: String
+    val expires_at: String? = null,
+    val parameters: Map<String, Any>? = null
 )

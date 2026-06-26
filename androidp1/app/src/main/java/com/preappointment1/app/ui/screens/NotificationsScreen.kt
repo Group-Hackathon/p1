@@ -12,71 +12,53 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.preappointment1.app.R
+import com.preappointment1.app.data.updateFollowUpSchedule
+import com.preappointment1.app.notifications.NotificationHelper
+import com.preappointment1.app.notifications.ScheduleReminderManager
+import com.preappointment1.app.schedule.ScheduleDefaults
 import com.preappointment1.app.ui.components.*
 import com.preappointment1.app.ui.theme.*
 import com.preappointment1.app.worker.NotificationScheduler
-
-private data class ReminderUi(
-    val id: String,
-    val title: String,
-    val description: String,
-    val time: String
-)
-
-private val defaultReminders = listOf(
-    ReminderUi(
-        id = "photo",
-        title = "Daily photo",
-        description = "Guided photo of the tracked area",
-        time = "9:00 AM"
-    ),
-    ReminderUi(
-        id = "checkin",
-        title = "Evening check-in",
-        description = "Pain level and infection questions",
-        time = "7:00 PM"
-    ),
-    ReminderUi(
-        id = "missed",
-        title = "Missed routine alert",
-        description = "If nothing is recorded by this time",
-        time = "8:30 PM"
-    )
-)
+import kotlinx.coroutines.launch
 
 @Composable
 fun NotificationsScreen(
+    activeFollowUp: FollowUpUi?,
     onBack: () -> Unit,
+    onScheduleUpdated: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val enabledStates = remember {
-        mutableStateMapOf<String, Boolean>().apply {
-            defaultReminders.forEach { put(it.id, true) }
-        }
+    val scope = rememberCoroutineScope()
+    var showEditor by remember { mutableStateOf(false) }
+    var isSaving by remember { mutableStateOf(false) }
+
+    val displaySchedule = remember(activeFollowUp?.schedule) {
+        activeFollowUp?.schedule ?: ScheduleDefaults.load(context)
     }
+
+    val scheduleReminders = remember(displaySchedule) {
+        ScheduleReminderManager.remindersFromSchedule(displaySchedule)
+    }
+
     var testSent by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { granted ->
             if (granted) {
-                NotificationScheduler.scheduleRoutineReminder(
-                    context = context,
-                    title = "P1 — Daily routine",
-                    message = "Time for your photo and check-in.",
-                    delayMinutes = 0
-                )
-                testSent = true
+                sendTestNotification(context) { testSent = true }
             }
         }
     )
 
-    fun sendTestNotification() {
+    fun requestTestNotification() {
         val needsPermission = Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(
                 context, Manifest.permission.POST_NOTIFICATIONS
@@ -85,14 +67,45 @@ fun NotificationsScreen(
         if (needsPermission) {
             permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            NotificationScheduler.scheduleRoutineReminder(
-                context = context,
-                title = "P1 — Daily routine",
-                message = "Time for your photo and check-in.",
-                delayMinutes = 0
-            )
-            testSent = true
+            sendTestNotification(context) { testSent = true }
         }
+    }
+
+    if (showEditor) {
+        ScheduleEditorSheet(
+            title = if (activeFollowUp != null) {
+                stringResource(R.string.notifications_edit_protocol)
+            } else {
+                stringResource(R.string.notifications_edit_defaults)
+            },
+            schedule = displaySchedule,
+            isSaving = isSaving,
+            onDismiss = { showEditor = false },
+            onSave = { newSchedule ->
+                isSaving = true
+                scope.launch {
+                    try {
+                        if (activeFollowUp != null) {
+                            updateFollowUpSchedule(activeFollowUp.id, newSchedule)
+                            ScheduleReminderManager.scheduleForFollowUp(
+                                context,
+                                activeFollowUp.id,
+                                activeFollowUp.title,
+                                newSchedule
+                            )
+                            onScheduleUpdated()
+                        } else {
+                            ScheduleDefaults.save(context, newSchedule)
+                        }
+                        showEditor = false
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    } finally {
+                        isSaving = false
+                    }
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -110,33 +123,54 @@ fun NotificationsScreen(
             item {
                 Spacer(modifier = Modifier.height(8.dp))
                 LpmBodyText(
-                    "Reminders keep your follow-up consistent. " +
-                        "Each entry strengthens the report for your doctor."
+                    if (activeFollowUp != null) {
+                        "Reminders follow your ${activeFollowUp.title} protocol. " +
+                            "Edit times here or from the tracking menu."
+                    } else {
+                        "Default times apply to manual setup and new trackings without a custom schedule."
+                    }
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "DAILY REMINDERS",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Gray400,
-                    letterSpacing = 1.5.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "PROTOCOL REMINDERS",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Gray400,
+                        letterSpacing = 1.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    TextButton(onClick = { showEditor = true }) {
+                        Text(stringResource(R.string.menu_edit_schedule), color = Black)
+                    }
+                }
             }
 
-            items(defaultReminders.size) { index ->
-                val reminder = defaultReminders[index]
-                ReminderRow(
-                    reminder = reminder,
-                    enabled = enabledStates[reminder.id] == true,
-                    onToggle = { enabledStates[reminder.id] = it }
-                )
+            if (scheduleReminders.isEmpty()) {
+                item {
+                    LpmCard {
+                        Text(
+                            text = "No schedule configured.",
+                            modifier = Modifier.padding(20.dp),
+                            color = Gray600
+                        )
+                    }
+                }
+            } else {
+                items(scheduleReminders.size) { index ->
+                    val reminder = scheduleReminders[index]
+                    ReminderRow(reminder = reminder)
+                }
             }
 
             item {
                 Spacer(modifier = Modifier.height(16.dp))
                 LpmSecondaryButton(
                     text = if (testSent) "Test notification sent" else "Send a test notification",
-                    onClick = { sendTestNotification() },
+                    onClick = { requestTestNotification() },
                     enabled = !testSent
                 )
                 Spacer(modifier = Modifier.height(32.dp))
@@ -145,12 +179,19 @@ fun NotificationsScreen(
     }
 }
 
+private fun sendTestNotification(context: android.content.Context, onSent: () -> Unit) {
+    NotificationHelper.createNotificationChannel(context)
+    NotificationScheduler.scheduleRoutineReminder(
+        context = context,
+        title = "P1 — Check-in reminder",
+        message = "Time for your scheduled measurements.",
+        delayMinutes = 0
+    )
+    onSent()
+}
+
 @Composable
-private fun ReminderRow(
-    reminder: ReminderUi,
-    enabled: Boolean,
-    onToggle: (Boolean) -> Unit
-) {
+private fun ReminderRow(reminder: com.preappointment1.app.notifications.ScheduleReminderUi) {
     LpmCard {
         Row(
             modifier = Modifier
@@ -161,29 +202,30 @@ private fun ReminderRow(
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = reminder.title,
+                        text = "Check-in at ${reminder.timeKey}",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = if (enabled) Black else Gray400
+                        color = Black
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = reminder.time,
+                        text = reminder.displayTime,
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (enabled) Gray600 else Gray400
+                        color = Gray600
                     )
                 }
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = reminder.description,
+                    text = reminder.measures,
                     style = MaterialTheme.typography.bodySmall,
                     color = Gray400
                 )
             }
             Switch(
-                checked = enabled,
-                onCheckedChange = onToggle,
+                checked = true,
+                onCheckedChange = {},
+                enabled = false,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = White,
                     checkedTrackColor = Black,

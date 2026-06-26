@@ -12,6 +12,7 @@ import com.preappointment1.app.MainActivity
 
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        val title = intent.getStringExtra("title") ?: "Tracking Reminder"
         val message = intent.getStringExtra("message") ?: "It's time for your health check-in!"
 
         val i = Intent(context, MainActivity::class.java).apply {
@@ -26,7 +27,7 @@ class ReminderReceiver : BroadcastReceiver() {
 
         val builder = NotificationCompat.Builder(context, NotificationHelper.CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
-            .setContentTitle("Tracking Reminder")
+            .setContentTitle(title)
             .setContentText(message)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)

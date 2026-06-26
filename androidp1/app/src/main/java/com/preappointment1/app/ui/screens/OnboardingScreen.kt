@@ -2,6 +2,7 @@ package com.preappointment1.app.ui.screens
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -22,9 +23,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import android.app.Activity
 import com.preappointment1.app.billing.BillingManager
+import com.preappointment1.app.notifications.ScheduleReminderManager
+import com.preappointment1.app.schedule.ScheduleDefaults
+import com.preappointment1.app.schedule.ScheduleLogic
 import com.preappointment1.app.data.AuthHelper
 import com.preappointment1.app.data.api.ApiClient
 import com.preappointment1.app.data.model.RecommendRequest
@@ -67,6 +72,7 @@ fun OnboardingScreen(
     var generatedSchedule by remember { mutableStateOf<Map<String, List<String>>?>(null) }
 
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     
     val purchaseSuccess by BillingManager.purchaseSuccessFlow.collectAsState()
 
@@ -104,6 +110,11 @@ fun OnboardingScreen(
                         )
                     )
                     onFollowUpCreated(response.id)
+                    generatedSchedule?.let { schedule ->
+                        ScheduleReminderManager.scheduleForFollowUp(
+                            context, response.id, generatedTitle, schedule
+                        )
+                    }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 } finally {
@@ -131,7 +142,7 @@ fun OnboardingScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = if (step == 2) 12.dp else 20.dp)
         ) {
             Spacer(modifier = Modifier.height(16.dp))
             if (step <= 3) {
@@ -141,6 +152,9 @@ fun OnboardingScreen(
 
             AnimatedContent(
                 targetState = step,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
                 transitionSpec = {
                     (fadeIn() + slideInHorizontally { width -> width }).togetherWith(
                         fadeOut() + slideOutHorizontally { width -> -width }
@@ -182,12 +196,16 @@ fun OnboardingScreen(
                                         RecommendRequest(
                                             symptoms = symptomText,
                                             appointment_date = appointmentDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                                            rules = rulesDto
+                                            rules = rulesDto,
+                                            local_time = java.time.LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm")),
+                                            timezone = java.time.ZoneId.systemDefault().id
                                         )
                                     )
                                     generatedTitle = response.name
                                     generatedPlan = response.description
-                                    generatedSchedule = response.schedule
+                                    generatedSchedule = response.schedule?.let { schedule ->
+                                        ScheduleLogic.adaptScheduleToNow(schedule, java.time.LocalTime.now())
+                                    }
                                     step = 4 // Premium Preview
                                 } catch (e: Exception) {
                                     e.printStackTrace()
@@ -240,6 +258,9 @@ fun OnboardingScreen(
                                         )
                                     )
                                     onFollowUpCreated(response.id)
+                                    ScheduleReminderManager.scheduleForFollowUp(
+                                        context, response.id, customTitle, customSchedule
+                                    )
                                 } catch (e: Exception) {
                                     e.printStackTrace()
                                 } finally {
@@ -302,8 +323,16 @@ private fun DateStep(
             .toInstant()
             .toEpochMilli()
     )
+    val scrollState = rememberScrollState()
+    val selectedDateLabel = remember(datePickerState.selectedDateMillis) {
+        datePickerState.selectedDateMillis?.let { millis ->
+            java.time.Instant.ofEpochMilli(millis)
+                .atZone(java.time.ZoneId.of("UTC"))
+                .toLocalDate()
+                .format(DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH))
+        } ?: date.format(DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH))
+    }
 
-    // Sync selection back to parent whenever it changes
     LaunchedEffect(datePickerState.selectedDateMillis) {
         datePickerState.selectedDateMillis?.let { millis ->
             val selected = java.time.Instant.ofEpochMilli(millis)
@@ -313,28 +342,47 @@ private fun DateStep(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+    // Single scroll: DatePicker needs unbounded height (6-row months clip inside weight boxes).
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+    ) {
         LpmSectionTitle("When is your appointment?")
         Spacer(modifier = Modifier.height(8.dp))
         LpmBodyText("Select the exact date of your next medical checkup.")
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // Embedded graphical calendar (no dialog)
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        Text(
+            text = selectedDateLabel,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = Black
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // No Card — rounded Card clips the grid on the right/bottom edges.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Gray50, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                .border(1.dp, Gray200, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                .padding(vertical = 4.dp)
         ) {
             DatePicker(
                 state = datePickerState,
                 showModeToggle = false,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 420.dp),
+                title = null,
+                headline = null,
                 colors = DatePickerDefaults.colors(
                     selectedDayContainerColor = Black,
                     selectedDayContentColor = White,
                     todayDateBorderColor = Black,
                     todayContentColor = Black,
-                    containerColor = White,
+                    containerColor = Gray50,
                     headlineContentColor = Black,
                     weekdayContentColor = Gray600,
                     dayContentColor = Black,
@@ -343,7 +391,7 @@ private fun DateStep(
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
         LpmPrimaryButton(text = "Continue", onClick = onNext)
         Spacer(modifier = Modifier.height(24.dp))
     }
@@ -368,8 +416,8 @@ private fun RulesStep(
         RuleToggle("Temperature", "Manual entries", ruleTemperature, onRuleTemperatureChange)
         RuleToggle("Pain tracking", "Daily pain level", rulePain, onRulePainChange)
         RuleToggle("Daily photos", "Guided photo capture", rulePhotos, onRulePhotosChange)
-        RuleToggle("Smartwatch data", "Heart rate, steps", ruleSmartwatch, onRuleSmartwatchChange)
-        RuleToggle("Blood pressure", "Manual or connected", ruleBp, onRuleBpChange)
+        RuleToggleComingSoon("Smartwatch data", "Heart rate, steps — coming soon")
+        RuleToggleComingSoon("Blood pressure", "Manual or connected — coming soon")
 
         Spacer(modifier = Modifier.height(32.dp))
         LpmPrimaryButton(
@@ -378,6 +426,33 @@ private fun RulesStep(
             loading = isLoading
         )
         Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun RuleToggleComingSoon(title: String, subtitle: String) {
+    LpmCard(modifier = Modifier.padding(bottom = 12.dp).alpha(0.55f)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = title, fontWeight = FontWeight.Bold, color = Gray400)
+                Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = Gray400)
+            }
+            Switch(
+                checked = false,
+                onCheckedChange = {},
+                enabled = false,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = White,
+                    checkedTrackColor = Black,
+                    uncheckedThumbColor = White,
+                    uncheckedTrackColor = Gray200,
+                    uncheckedBorderColor = Gray200
+                )
+            )
+        }
     }
 }
 
@@ -555,127 +630,114 @@ private fun OfflineFallbackStep(
     }
 }
 
-class DayConfig {
-    var mornPain by mutableStateOf(false)
-    var mornTemp by mutableStateOf(false)
-    var mornPhoto by mutableStateOf(false)
-    
-    var noonPain by mutableStateOf(false)
-    var noonTemp by mutableStateOf(false)
-    var noonPhoto by mutableStateOf(false)
-    
-    var evePain by mutableStateOf(false)
-    var eveTemp by mutableStateOf(false)
-    var evePhoto by mutableStateOf(false)
-}
-
 @Composable
 private fun ManualEntryStep(
     appointmentDate: LocalDate,
     isLoading: Boolean,
     onConfirm: (title: String, schedule: Map<String, List<String>>) -> Unit
 ) {
+    val context = LocalContext.current
+    val defaults = remember { ScheduleDefaults.load(context) }
     val durationDays = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), appointmentDate).toInt().coerceAtLeast(1)
     var trackingTitle by remember { mutableStateOf("") }
-    
-    // Create state for EVERY single day to make manual entry extremely tedious
-    val dayConfigs = remember(durationDays) {
-        List(durationDays) { DayConfig() }
-    }
+    var mornPain by remember { mutableStateOf(defaults["08:00"]?.contains("pain") == true) }
+    var mornTemp by remember { mutableStateOf(defaults["08:00"]?.contains("temperature") == true) }
+    var mornPhoto by remember { mutableStateOf(defaults["08:00"]?.contains("photo") == true) }
+    var noonPain by remember { mutableStateOf(defaults["12:00"]?.contains("pain") == true) }
+    var noonTemp by remember { mutableStateOf(defaults["12:00"]?.contains("temperature") == true) }
+    var noonPhoto by remember { mutableStateOf(defaults["12:00"]?.contains("photo") == true) }
+    var evePain by remember { mutableStateOf(defaults["20:00"]?.contains("pain") == true) }
+    var eveTemp by remember { mutableStateOf(defaults["20:00"]?.contains("temperature") == true) }
+    var evePhoto by remember { mutableStateOf(defaults["20:00"]?.contains("photo") == true) }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+    ) {
         Text("Manual Tracking Setup", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = Black)
         Spacer(modifier = Modifier.height(8.dp))
-        Text("Please manually configure your tracking requirements for every single day until your appointment ($durationDays days).", style = MaterialTheme.typography.bodyMedium, color = Gray600)
-        
+        Text(
+            "Set your daily check-in times for the next $durationDays days until your appointment.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Gray600
+        )
+
         Spacer(modifier = Modifier.height(16.dp))
-        
+
         OutlinedTextField(
             value = trackingTitle,
             onValueChange = { trackingTitle = it },
-            label = { Text("Tracking Name (e.g. My Custom Tracking)") },
+            label = { Text("Tracking name") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
         )
-        
+
         Spacer(modifier = Modifier.height(16.dp))
-        
-        // Use LazyColumn for performance since it could be many days
-        androidx.compose.foundation.lazy.LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth()
-        ) {
-            items(durationDays) { index ->
-                val config = dayConfigs[index]
-                val dayDate = LocalDate.now().plusDays(index.toLong())
-                val formattedDate = dayDate.format(DateTimeFormatter.ofPattern("EEEE, MMM d", java.util.Locale.ENGLISH))
 
-                LpmCard(modifier = Modifier.padding(bottom = 16.dp).fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Day ${index + 1} — $formattedDate", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Black)
-                        Divider(modifier = Modifier.padding(vertical = 8.dp), color = Gray200)
-
-                        // Morning
-                        Text("Morning (08:00)", fontWeight = FontWeight.SemiBold, color = Black, fontSize = 14.sp)
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            ManualCheckbox("Pain", config.mornPain) { config.mornPain = it }
-                            ManualCheckbox("Temp", config.mornTemp) { config.mornTemp = it }
-                            ManualCheckbox("Photo", config.mornPhoto) { config.mornPhoto = it }
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        
-                        // Noon
-                        Text("Noon (12:00)", fontWeight = FontWeight.SemiBold, color = Black, fontSize = 14.sp)
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            ManualCheckbox("Pain", config.noonPain) { config.noonPain = it }
-                            ManualCheckbox("Temp", config.noonTemp) { config.noonTemp = it }
-                            ManualCheckbox("Photo", config.noonPhoto) { config.noonPhoto = it }
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        
-                        // Evening
-                        Text("Evening (20:00)", fontWeight = FontWeight.SemiBold, color = Black, fontSize = 14.sp)
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            ManualCheckbox("Pain", config.evePain) { config.evePain = it }
-                            ManualCheckbox("Temp", config.eveTemp) { config.eveTemp = it }
-                            ManualCheckbox("Photo", config.evePhoto) { config.evePhoto = it }
-                        }
-                    }
+        LpmCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Morning — 08:00", fontWeight = FontWeight.SemiBold, color = Black)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    ManualCheckbox("Pain", mornPain) { mornPain = it }
+                    ManualCheckbox("Temp", mornTemp) { mornTemp = it }
+                    ManualCheckbox("Photo", mornPhoto) { mornPhoto = it }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-        
+        Spacer(modifier = Modifier.height(12.dp))
+
+        LpmCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Noon — 12:00", fontWeight = FontWeight.SemiBold, color = Black)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    ManualCheckbox("Pain", noonPain) { noonPain = it }
+                    ManualCheckbox("Temp", noonTemp) { noonTemp = it }
+                    ManualCheckbox("Photo", noonPhoto) { noonPhoto = it }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        LpmCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Evening — 20:00", fontWeight = FontWeight.SemiBold, color = Black)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    ManualCheckbox("Pain", evePain) { evePain = it }
+                    ManualCheckbox("Temp", eveTemp) { eveTemp = it }
+                    ManualCheckbox("Photo", evePhoto) { evePhoto = it }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         LpmPrimaryButton(
-            text = "Create Free Tracking",
+            text = "Create free tracking",
             loading = isLoading,
             enabled = trackingTitle.isNotBlank(),
             onClick = {
                 val schedule = mutableMapOf<String, List<String>>()
-                
-                val mornSet = mutableSetOf<String>()
-                val noonSet = mutableSetOf<String>()
-                val eveSet = mutableSetOf<String>()
 
-                // Aggregate everything requested across all days
-                for (config in dayConfigs) {
-                    if (config.mornPain) mornSet.add("pain")
-                    if (config.mornTemp) mornSet.add("temperature")
-                    if (config.mornPhoto) mornSet.add("photo")
-
-                    if (config.noonPain) noonSet.add("pain")
-                    if (config.noonTemp) noonSet.add("temperature")
-                    if (config.noonPhoto) noonSet.add("photo")
-
-                    if (config.evePain) eveSet.add("pain")
-                    if (config.eveTemp) eveSet.add("temperature")
-                    if (config.evePhoto) eveSet.add("photo")
+                fun slotSet(pain: Boolean, temp: Boolean, photo: Boolean): List<String> {
+                    val set = mutableListOf<String>()
+                    if (pain) set.add("pain")
+                    if (temp) set.add("temperature")
+                    if (photo) set.add("photo")
+                    return set
                 }
-                
-                if (mornSet.isNotEmpty()) schedule["08:00"] = mornSet.toList()
-                if (noonSet.isNotEmpty()) schedule["12:00"] = noonSet.toList()
-                if (eveSet.isNotEmpty()) schedule["20:00"] = eveSet.toList()
-                
+
+                val morn = slotSet(mornPain, mornTemp, mornPhoto)
+                val noon = slotSet(noonPain, noonTemp, noonPhoto)
+                val eve = slotSet(evePain, eveTemp, evePhoto)
+
+                if (morn.isNotEmpty()) schedule["08:00"] = morn
+                if (noon.isNotEmpty()) schedule["12:00"] = noon
+                if (eve.isNotEmpty()) schedule["20:00"] = eve
+
+                if (schedule.isEmpty()) return@LpmPrimaryButton
                 onConfirm(trackingTitle, schedule)
             }
         )

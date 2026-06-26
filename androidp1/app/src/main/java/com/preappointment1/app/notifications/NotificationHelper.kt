@@ -27,9 +27,17 @@ object NotificationHelper {
         }
     }
 
-    fun scheduleDailyReminder(context: Context, hour: Int, minute: Int, requestCode: Int, message: String) {
+    fun scheduleDailyReminder(
+        context: Context,
+        hour: Int,
+        minute: Int,
+        requestCode: Int,
+        title: String,
+        message: String
+    ) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val intent = Intent(context, ReminderReceiver::class.java).apply {
+            putExtra("title", title)
             putExtra("message", message)
         }
 
@@ -59,5 +67,18 @@ object NotificationHelper {
             AlarmManager.INTERVAL_DAY,
             pendingIntent
         )
+    }
+
+    fun cancelReminder(context: Context, requestCode: Int) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, ReminderReceiver::class.java)
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        alarmManager.cancel(pendingIntent)
+        pendingIntent.cancel()
     }
 }

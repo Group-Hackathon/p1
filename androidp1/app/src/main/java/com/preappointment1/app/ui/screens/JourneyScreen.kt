@@ -1,15 +1,5 @@
 package com.preappointment1.app.ui.screens
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.util.Log
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -23,10 +13,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.AddCircle
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,16 +25,19 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
 import com.preappointment1.app.R
-import androidx.core.content.ContextCompat
 import com.preappointment1.app.MainTopBar
 import com.preappointment1.app.data.api.ApiClient
+import com.preappointment1.app.data.updateFollowUpSchedule
+import com.preappointment1.app.notifications.ScheduleReminderManager
+import com.preappointment1.app.schedule.MeasurementStep
+import com.preappointment1.app.schedule.ScheduleLogic
+import com.preappointment1.app.schedule.ScheduleSlot
 import com.preappointment1.app.data.model.TimelineEventRequest
 import com.preappointment1.app.data.model.TimelineEventResponse
 import com.preappointment1.app.data.model.UpdateSubscriptionRequest
@@ -59,8 +52,40 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
-private enum class MeasurementStep {
-    Pain, Temperature, Photo
+private fun isSlotCompletedToday(
+    events: List<TimelineEventResponse>,
+    slotKey: String,
+    isFirstSlot: Boolean
+): Boolean {
+    val today = LocalDate.now()
+    return events.any { event ->
+        if (event.type != "user") return@any false
+        if (event.date_label.contains("Question") || event.date_label.contains("Retroactive")) return@any false
+        val eventDate = runCatching {
+            Instant.parse(event.effective_at ?: event.created_at)
+                .atZone(ZoneId.systemDefault()).toLocalDate()
+        }.getOrNull() ?: return@any false
+        if (eventDate != today) return@any false
+        event.date_label == slotKey ||
+            (isFirstSlot && event.date_label.equals(ScheduleLogic.INITIAL_LABEL, ignoreCase = true))
+    }
+}
+
+private fun measurementStepsFromSchedule(schedule: Map<String, List<String>>): List<MeasurementStep> {
+    val types = schedule.values.flatten().map { it.lowercase() }.toSet()
+    val ordered = listOf(
+        MeasurementStep.Pain to "pain",
+        MeasurementStep.Temperature to "temperature",
+        MeasurementStep.Photo to "photo"
+    )
+    return ordered.filter { (_, key) -> key in types }.map { it.first }
+        .ifEmpty { listOf(MeasurementStep.Pain) }
+}
+
+private fun measurementStepLabel(step: MeasurementStep): Int = when (step) {
+    MeasurementStep.Pain -> R.string.measurement_type_pain
+    MeasurementStep.Temperature -> R.string.measurement_type_temperature
+    MeasurementStep.Photo -> R.string.measurement_type_photo
 }
 
 private sealed class TimelineItem {
@@ -82,6 +107,10 @@ fun JourneyScreen(
     var events by remember { mutableStateOf<List<TimelineEventResponse>>(emptyList()) }
     var isFormMode by remember { mutableStateOf(false) }
     var formEffectiveDate by remember { mutableStateOf<LocalDate?>(null) }
+    var formLabelOverride by remember { mutableStateOf<String?>(null) }
+    var formStepsOverride by remember { mutableStateOf<List<MeasurementStep>?>(null) }
+    var showNoteSheet by remember { mutableStateOf(false) }
+    var showExtraPicker by remember { mutableStateOf(false) }
 
     // Mutable followUp state for date changes
     var currentFollowUp by remember { mutableStateOf(followUp) }
@@ -95,6 +124,9 @@ fun JourneyScreen(
     var showMenu by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showScheduleEditor by remember { mutableStateOf(false) }
+    var isSavingSchedule by remember { mutableStateOf(false) }
+    val appContext = LocalContext.current
 
     var now by remember { mutableStateOf(LocalTime.now()) }
     LaunchedEffect(Unit) {
@@ -108,59 +140,50 @@ fun JourneyScreen(
         "20:00" to listOf("pain", "temperature", "photo")
     )
 
-    val sortedTimes = schedule.keys.mapNotNull {
-        runCatching { LocalTime.parse(it) }.getOrNull()
-    }.sorted()
+    val scheduleSlots = remember(schedule) { ScheduleLogic.parseScheduleSlots(schedule) }
 
-    var activeWindowTime: LocalTime? = null
-    var nextWindowTime: LocalTime? = null
-    var isMeasurementWindow = false
-
-    for (time in sortedTimes) {
-        val windowEnd = time.plusHours(4)
-        val crossesMidnight = windowEnd.isBefore(time)
-        val isWindow = if (crossesMidnight) {
-            now.isAfter(time) || now == time || now.isBefore(windowEnd)
-        } else {
-            (now.isAfter(time) || now == time) && now.isBefore(windowEnd)
-        }
-        
-        if (isWindow) {
-            activeWindowTime = time
-            isMeasurementWindow = true
-            break
-        }
+    val isInitial = !isLoading && events.none {
+        it.type == "user" && !it.date_label.contains("Question")
     }
 
-    if (!isMeasurementWindow) {
-        for (time in sortedTimes) {
-            if (time.isAfter(now)) {
-                nextWindowTime = time
-                break
-            }
-        }
-        if (nextWindowTime == null && sortedTimes.isNotEmpty()) {
-            nextWindowTime = sortedTimes.first()
-        }
+    val isSlotPending: (ScheduleSlot) -> Boolean = { slot ->
+        !isSlotCompletedToday(
+            events,
+            slot.timeKey,
+            slot == scheduleSlots.firstOrNull()
+        )
     }
 
-    val isInitial = !isLoading && events.isEmpty()
-    if (isInitial && sortedTimes.isNotEmpty() && !isMeasurementWindow) {
-        isMeasurementWindow = true
-        activeWindowTime = null
+    val measurementContext = remember(schedule, scheduleSlots, events, now, isInitial) {
+        ScheduleLogic.resolveMeasurementContext(
+            schedule = schedule,
+            slots = scheduleSlots,
+            now = now,
+            isInitial = isInitial,
+            isSlotPending = isSlotPending
+        )
     }
 
-    val periodName = activeWindowTime?.toString() ?: if (isInitial) stringResource(R.string.period_initial) else stringResource(R.string.period_routine)
+    val dueSlot = measurementContext.dueSlot
+    val nextSlot = measurementContext.nextSlot
+    val showStarterCheckIn = measurementContext.showStarterCheckIn
+    val showMeasurementButton = dueSlot != null || showStarterCheckIn
 
-    val nextWindowName = nextWindowTime?.toString()?.let { stringResource(R.string.check_in_at, it) } ?: stringResource(R.string.next_check_in)
+    val nextWindowTime = nextSlot?.time
+    val nextWindowName = nextSlot?.timeKey?.let { stringResource(R.string.check_in_at, it) }
+        ?: stringResource(R.string.next_check_in)
+
+    val refreshTimeline: suspend () -> Unit = {
+        val remoteEvents = ApiClient.apiService.getTimeline(currentFollowUp.id)
+        events = remoteEvents.sortedBy { it.effective_at ?: it.created_at }
+        isLoading = false
+    }
 
     LaunchedEffect(currentFollowUp.id) {
         isLoading = true
         while (true) {
             try {
-                val remoteEvents = ApiClient.apiService.getTimeline(currentFollowUp.id)
-                events = remoteEvents.sortedBy { it.effective_at ?: it.created_at }
-                isLoading = false
+                refreshTimeline()
             } catch (e: Exception) {
                 e.printStackTrace()
                 isLoading = false
@@ -308,6 +331,13 @@ fun JourneyScreen(
                                 onDismissRequest = { showMenu = false }
                             ) {
                                 DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.menu_edit_schedule)) },
+                                    onClick = {
+                                        showMenu = false
+                                        showScheduleEditor = true
+                                    }
+                                )
+                                DropdownMenuItem(
                                     text = { Text(stringResource(R.string.menu_change_appt_date)) },
                                     onClick = {
                                         showMenu = false
@@ -354,7 +384,12 @@ fun JourneyScreen(
                     ) {
                         item {
                             JourneySummary(followUp = currentFollowUp, events = events, appointmentDate = appointmentDate)
-                            TopInfoCard(currentFollowUp, periodName, isMeasurementWindow, nextWindowName, nextWindowTime)
+                            TopInfoCard(
+                                followUp = currentFollowUp,
+                                dueSlotKey = dueSlot?.timeKey,
+                                nextWindowName = nextWindowName,
+                                nextWindowTime = nextWindowTime
+                            )
                         }
 
                         if (events.isEmpty()) {
@@ -391,6 +426,8 @@ fun JourneyScreen(
                                         onAddMissed = if (isPastDay) {
                                             {
                                                 formEffectiveDate = item.date
+                                                formLabelOverride = null
+                                                formStepsOverride = null
                                                 isFormMode = true
                                             }
                                         } else null
@@ -401,19 +438,59 @@ fun JourneyScreen(
                     }
                 }
 
-                BottomChatAndActions(
-                    followUp = currentFollowUp,
-                    isMeasurementWindow = isMeasurementWindow,
-                    periodName = periodName,
+                BottomMeasurementBar(
+                    dueSlot = dueSlot,
+                    nextSlot = nextSlot,
+                    nextWindowTime = nextWindowTime,
+                    showMeasurementButton = showMeasurementButton,
+                    showStarterCheckIn = showStarterCheckIn,
+                    previewActionsOverride = if (showStarterCheckIn) {
+                        ScheduleLogic.starterActions(schedule, now, null, nextSlot)
+                    } else null,
                     onStartRoutine = {
                         formEffectiveDate = null
+                        formLabelOverride = if (showStarterCheckIn) measurementContext.formLabelOverride else null
+                        formStepsOverride = if (showStarterCheckIn) measurementContext.formStepsOverride else null
                         isFormMode = true
-                    }
+                    },
+                    onAddNote = { showNoteSheet = true },
+                    onExtraMeasurement = { showExtraPicker = true },
+                    onOpenReport = { onOpenReport?.invoke() }
                 )
             }
         }
 
-        // Focus Mode Overlay
+        if (showExtraPicker) {
+            ExtraMeasurementPickerSheet(
+                availableSteps = remember(schedule) { measurementStepsFromSchedule(schedule) },
+                onDismiss = { showExtraPicker = false },
+                onSelect = { step ->
+                    showExtraPicker = false
+                    formEffectiveDate = null
+                    formLabelOverride = "Extra - ${LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))}"
+                    formStepsOverride = listOf(step)
+                    isFormMode = true
+                }
+            )
+        }
+
+        if (showNoteSheet) {
+            NoteBottomSheet(
+                followUpId = currentFollowUp.id,
+                onDismiss = { showNoteSheet = false },
+                onSent = {
+                    showNoteSheet = false
+                    coroutineScope.launch {
+                        try {
+                            refreshTimeline()
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+            )
+        }
+
         if (isFormMode) {
             Box(
                 modifier = Modifier
@@ -422,11 +499,61 @@ fun JourneyScreen(
             ) {
                 FocusModeForm(
                     followUp = currentFollowUp,
-                    periodName = periodName,
+                    scheduleKey = measurementContext.formScheduleKey,
                     effectiveDate = formEffectiveDate,
-                    onClose = { isFormMode = false }
+                    labelOverride = formLabelOverride,
+                    stepsOverride = formStepsOverride,
+                    onClose = {
+                        isFormMode = false
+                        formLabelOverride = null
+                        formStepsOverride = null
+                    },
+                    onSubmitted = {
+                        isFormMode = false
+                        formLabelOverride = null
+                        formStepsOverride = null
+                        coroutineScope.launch {
+                            try {
+                                refreshTimeline()
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }
                 )
             }
+        }
+
+        if (showScheduleEditor) {
+            ScheduleEditorSheet(
+                title = stringResource(R.string.schedule_editor_title),
+                schedule = schedule,
+                isSaving = isSavingSchedule,
+                onDismiss = { showScheduleEditor = false },
+                onSave = { newSchedule ->
+                    isSavingSchedule = true
+                    coroutineScope.launch {
+                        try {
+                            val refreshed = updateFollowUpSchedule(currentFollowUp.id, newSchedule)
+                            if (refreshed != null) {
+                                currentFollowUp = refreshed
+                                onFollowUpUpdated?.invoke(refreshed)
+                                ScheduleReminderManager.scheduleForFollowUp(
+                                    appContext,
+                                    refreshed.id,
+                                    refreshed.title,
+                                    newSchedule
+                                )
+                            }
+                            showScheduleEditor = false
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        } finally {
+                            isSavingSchedule = false
+                        }
+                    }
+                }
+            )
         }
     }
 }
@@ -492,17 +619,22 @@ private fun SummaryItem(value: String, label: String) {
 }
 
 @Composable
-private fun TopInfoCard(followUp: FollowUpUi, periodName: String, isWindow: Boolean, nextWindowName: String, nextWindowTime: LocalTime?) {
+private fun TopInfoCard(
+    followUp: FollowUpUi,
+    dueSlotKey: String?,
+    nextWindowName: String,
+    nextWindowTime: LocalTime?
+) {
     var countdownText by remember { mutableStateOf("") }
 
-    LaunchedEffect(nextWindowTime, isWindow) {
-        if (nextWindowTime == null || isWindow) {
+    LaunchedEffect(nextWindowTime, dueSlotKey) {
+        if (nextWindowTime == null || dueSlotKey != null) {
             countdownText = ""
             return@LaunchedEffect
         }
-        while(true) {
+        while (true) {
             val now = LocalTime.now()
-            var durationSeconds = java.time.temporal.ChronoUnit.SECONDS.between(now, nextWindowTime)
+            var durationSeconds = ChronoUnit.SECONDS.between(now, nextWindowTime)
             if (durationSeconds < 0) {
                 durationSeconds += 24 * 3600
             }
@@ -510,7 +642,7 @@ private fun TopInfoCard(followUp: FollowUpUi, periodName: String, isWindow: Bool
             val minutes = (durationSeconds % 3600) / 60
             val seconds = durationSeconds % 60
             countdownText = String.format(java.util.Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
-            kotlinx.coroutines.delay(1000)
+            delay(1000)
         }
     }
 
@@ -538,11 +670,10 @@ private fun TopInfoCard(followUp: FollowUpUi, periodName: String, isWindow: Bool
             Spacer(modifier = Modifier.height(12.dp))
             Text(stringResource(R.string.next_appt_in_days, followUp.daysRemaining), style = MaterialTheme.typography.bodySmall, color = Gray600)
 
-            val actionText = if (isWindow) {
-                stringResource(R.string.next_action_now, periodName)
-            } else {
-                if (nextWindowTime != null) stringResource(R.string.next_action_in, nextWindowName, countdownText)
-                else stringResource(R.string.next_action_pending)
+            val actionText = when {
+                dueSlotKey != null -> stringResource(R.string.next_action_now, dueSlotKey)
+                nextWindowTime != null -> stringResource(R.string.next_action_in, nextWindowName, countdownText)
+                else -> stringResource(R.string.next_action_done_today)
             }
 
             Text(
@@ -701,71 +832,176 @@ private fun FutureTimelineEvent(day: Int, label: String, isPast: Boolean = false
     }
 }
 
+private fun formatMeasurementActions(actions: List<String>): String {
+    return actions.map { action ->
+        when (action.lowercase()) {
+            "pain" -> "pain level"
+            "temperature" -> "temperature"
+            "photo" -> "a photo"
+            "smartwatch" -> "smartwatch data"
+            "blood_pressure" -> "blood pressure"
+            else -> action
+        }
+    }.joinToString(", ")
+}
+
 @Composable
-private fun BottomChatAndActions(
-    followUp: FollowUpUi,
-    isMeasurementWindow: Boolean,
-    periodName: String,
-    onStartRoutine: () -> Unit
+private fun BottomMeasurementBar(
+    dueSlot: ScheduleSlot?,
+    nextSlot: ScheduleSlot?,
+    nextWindowTime: LocalTime?,
+    showMeasurementButton: Boolean,
+    showStarterCheckIn: Boolean = false,
+    previewActionsOverride: List<String>? = null,
+    onStartRoutine: () -> Unit,
+    onAddNote: () -> Unit,
+    onExtraMeasurement: () -> Unit,
+    onOpenReport: () -> Unit
 ) {
-    var text by remember { mutableStateOf("") }
-    var isSending by remember { mutableStateOf(false) }
-    val coroutineScope = rememberCoroutineScope()
+    val previewSlot = dueSlot ?: nextSlot
+    val previewActions = previewActionsOverride ?: previewSlot?.actions ?: emptyList()
+    val previewText = formatMeasurementActions(previewActions)
+    var countdownText by remember { mutableStateOf("") }
+
+    LaunchedEffect(nextWindowTime, dueSlot) {
+        if (nextWindowTime == null || dueSlot != null) {
+            countdownText = ""
+            return@LaunchedEffect
+        }
+        while (true) {
+            val now = LocalTime.now()
+            var durationSeconds = ChronoUnit.SECONDS.between(now, nextWindowTime)
+            if (durationSeconds < 0) durationSeconds += 24 * 3600
+            val hours = durationSeconds / 3600
+            val minutes = (durationSeconds % 3600) / 60
+            val seconds = durationSeconds % 60
+            countdownText = String.format(java.util.Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
+            delay(1000)
+        }
+    }
 
     Surface(
         color = White,
         shadowElevation = 16.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            if (isMeasurementWindow) {
-                Button(
-                    onClick = onStartRoutine,
-                    modifier = Modifier.fillMaxWidth().height(50.dp).padding(bottom = 12.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Black)
-                ) {
-                    Text(stringResource(R.string.btn_fill_measurements, periodName), color = White, fontWeight = FontWeight.SemiBold)
-                }
-            } else {
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    placeholder = { Text(stringResource(R.string.chat_placeholder), color = Gray400) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Gray200,
-                        unfocusedBorderColor = Gray200,
-                        cursorColor = Black
-                    ),
-                    trailingIcon = {
-                        IconButton(
-                            onClick = {
-                                if (isSending || text.isBlank()) return@IconButton
-                                isSending = true
-                                coroutineScope.launch {
-                                    try {
-                                        ApiClient.apiService.postTimelineEvent(
-                                            followUp.id,
-                                            TimelineEventRequest(content = text.trim(), date_label = "Question")
-                                        )
-                                        text = ""
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
-                                    } finally {
-                                        isSending = false
-                                    }
-                                }
-                            }
-                        ) {
-                            if (isSending) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Black, strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Black)
-                            }
-                        }
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            when {
+                showMeasurementButton && showStarterCheckIn -> {
+                    Text(
+                        stringResource(R.string.bottom_starter_title),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Black
+                    )
+                    if (previewText.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            stringResource(R.string.bottom_checkin_will_ask, previewText),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Gray600
+                        )
                     }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = onStartRoutine,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Black)
+                    ) {
+                        Text(
+                            stringResource(R.string.btn_start_baseline),
+                            color = White,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                showMeasurementButton && dueSlot != null -> {
+                    Text(
+                        stringResource(R.string.bottom_checkin_now_title, dueSlot.timeKey),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Black
+                    )
+                    if (previewText.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            stringResource(R.string.bottom_checkin_will_ask, previewText),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Gray600
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = onStartRoutine,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Black)
+                    ) {
+                        Text(
+                            stringResource(R.string.btn_fill_measurements, dueSlot.timeKey),
+                            color = White,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                nextSlot != null -> {
+                    Text(
+                        stringResource(R.string.bottom_next_measurement_at, nextSlot.timeKey),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Black
+                    )
+                    if (previewText.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            stringResource(R.string.bottom_next_measurement_prepare, previewText),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Gray600
+                        )
+                    }
+                    if (countdownText.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            stringResource(R.string.bottom_countdown, countdownText),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Black
+                        )
+                    }
+                }
+                else -> {
+                    Text(
+                        stringResource(R.string.next_action_done_today),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Gray600
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            HorizontalDivider(color = Gray200)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                JourneyQuickAction(
+                    icon = { Icon(Icons.Outlined.Edit, contentDescription = null, tint = Black, modifier = Modifier.size(22.dp)) },
+                    label = stringResource(R.string.quick_action_note),
+                    onClick = onAddNote
+                )
+                JourneyQuickAction(
+                    icon = { Icon(Icons.Outlined.AddCircle, contentDescription = null, tint = Black, modifier = Modifier.size(22.dp)) },
+                    label = stringResource(R.string.quick_action_extra),
+                    onClick = onExtraMeasurement,
+                    enabled = !showMeasurementButton
+                )
+                JourneyQuickAction(
+                    icon = { Icon(Icons.Filled.List, contentDescription = null, tint = Black, modifier = Modifier.size(22.dp)) },
+                    label = stringResource(R.string.quick_action_report),
+                    onClick = onOpenReport
                 )
             }
         }
@@ -773,14 +1009,166 @@ private fun BottomChatAndActions(
 }
 
 @Composable
-private fun FocusModeForm(followUp: FollowUpUi, periodName: String, effectiveDate: LocalDate? = null, onClose: () -> Unit) {
+private fun JourneyQuickAction(
+    icon: @Composable () -> Unit,
+    label: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .alpha(if (enabled) 1f else 0.4f)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .background(Gray50, CircleShape)
+                .border(1.dp, Gray200, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            icon()
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = Gray600, textAlign = TextAlign.Center)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NoteBottomSheet(
+    followUpId: String,
+    onDismiss: () -> Unit,
+    onSent: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var text by remember { mutableStateOf("") }
+    var isSending by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = White
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
+            Text(
+                stringResource(R.string.note_sheet_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Black
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                stringResource(R.string.note_sheet_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = Gray600
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                placeholder = { Text(stringResource(R.string.note_sheet_placeholder), color = Gray400) },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Gray200,
+                    unfocusedBorderColor = Gray200,
+                    cursorColor = Black
+                )
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            LpmPrimaryButton(
+                text = if (isSending) "..." else stringResource(R.string.note_sheet_send),
+                onClick = {
+                    if (isSending || text.isBlank()) return@LpmPrimaryButton
+                    isSending = true
+                    coroutineScope.launch {
+                        try {
+                            ApiClient.apiService.postTimelineEvent(
+                                followUpId,
+                                TimelineEventRequest(content = text.trim(), date_label = "Question")
+                            )
+                            onSent()
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            isSending = false
+                        }
+                    }
+                }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExtraMeasurementPickerSheet(
+    availableSteps: List<MeasurementStep>,
+    onDismiss: () -> Unit,
+    onSelect: (MeasurementStep) -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = White
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
+            Text(
+                stringResource(R.string.extra_picker_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Black
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                stringResource(R.string.extra_picker_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = Gray600
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            availableSteps.forEach { step ->
+                OutlinedButton(
+                    onClick = { onSelect(step) },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Black)
+                ) {
+                    Text(
+                        stringResource(measurementStepLabel(step)),
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FocusModeForm(
+    followUp: FollowUpUi,
+    scheduleKey: String,
+    effectiveDate: LocalDate? = null,
+    labelOverride: String? = null,
+    stepsOverride: List<MeasurementStep>? = null,
+    onClose: () -> Unit,
+    onSubmitted: () -> Unit
+) {
     val coroutineScope = rememberCoroutineScope()
     val answers = remember { androidx.compose.runtime.mutableStateMapOf<MeasurementStep, String>() }
     var isSending by remember { mutableStateOf(false) }
+    var submitError by remember { mutableStateOf<String?>(null) }
 
-    val steps = remember(followUp.schedule, periodName) {
+    val steps = remember(followUp.schedule, scheduleKey, stepsOverride) {
+        if (stepsOverride != null) return@remember stepsOverride
+
         val list = mutableListOf<MeasurementStep>()
-        val actions = followUp.schedule?.get(periodName) ?: listOf("pain", "temperature")
+        val actions = followUp.schedule?.get(scheduleKey) ?: listOf("pain", "temperature")
 
         actions.forEach { action ->
             when (action.lowercase()) {
@@ -808,10 +1196,10 @@ private fun FocusModeForm(followUp: FollowUpUi, periodName: String, effectiveDat
         } else {
             isSending = true
             coroutineScope.launch {
-                val dateLabel = if (effectiveDate != null) {
+                val dateLabel = labelOverride ?: if (effectiveDate != null) {
                     "Retroactive - ${effectiveDate.format(DateTimeFormatter.ofPattern("MMM d"))}"
                 } else {
-                    periodName
+                    scheduleKey
                 }
                 val content = buildString {
                     appendLine("Routine Check-in ($dateLabel):")
@@ -828,17 +1216,16 @@ private fun FocusModeForm(followUp: FollowUpUi, periodName: String, effectiveDat
                             effective_date = effectiveDate?.format(DateTimeFormatter.ISO_LOCAL_DATE)
                         )
                     )
+                    isSending = false
+                    onSubmitted()
                 } catch (e: Exception) {
                     e.printStackTrace()
-                } finally {
                     isSending = false
-                    onClose()
+                    submitError = "Could not save. Please try again."
                 }
             }
         }
     }
-
-    val currentStep = steps[currentStepIndex]
 
     Box(
         modifier = Modifier
@@ -862,18 +1249,39 @@ private fun FocusModeForm(followUp: FollowUpUi, periodName: String, effectiveDat
             color = White
         ) {
             Column(modifier = Modifier.padding(24.dp).fillMaxWidth()) {
-                val headerText = if (effectiveDate != null) {
-                    "Add missed measurement — ${effectiveDate.format(DateTimeFormatter.ofPattern("EEEE, MMM d"))}"
-                } else {
-                    "Please enter your measurement"
+                val headerText = when {
+                    effectiveDate != null -> "Add missed measurement — ${effectiveDate.format(DateTimeFormatter.ofPattern("EEEE, MMM d"))}"
+                    stepsOverride != null -> stringResource(measurementStepLabel(steps.first()))
+                    else -> "Please enter your measurement"
                 }
                 Text(
                     headerText,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = Black,
-                    modifier = Modifier.padding(bottom = 16.dp)
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
+                if (effectiveDate == null && steps.size > 1) {
+                    Text(
+                        stringResource(R.string.measurement_step_progress, currentStepIndex + 1, steps.size),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Gray600,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                } else {
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                if (submitError != null) {
+                    Text(
+                        submitError!!,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+
+                val submitLabel = if (steps.size == 1) stringResource(R.string.action_save) else null
 
                 if (isSending) {
                     Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
@@ -881,15 +1289,15 @@ private fun FocusModeForm(followUp: FollowUpUi, periodName: String, effectiveDat
                     }
                 } else {
                     AnimatedContent(
-                        targetState = currentStep,
+                        targetState = currentStepIndex,
                         transitionSpec = {
                             (slideInHorizontally(animationSpec = tween(300)) { width -> width } + fadeIn(tween(300))).togetherWith(
                                 slideOutHorizontally(animationSpec = tween(300)) { width -> -width } + fadeOut(tween(300))
                             )
                         },
                         label = "StepTransition"
-                    ) { step ->
-                        when (step) {
+                    ) { stepIndex ->
+                        when (steps[stepIndex]) {
                             MeasurementStep.Pain -> {
                                 Column {
                                     var pain by remember { mutableFloatStateOf(0f) }
@@ -903,7 +1311,7 @@ private fun FocusModeForm(followUp: FollowUpUi, periodName: String, effectiveDat
                                     )
                                     Text("${pain.toInt()}/10", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, fontWeight = FontWeight.Bold)
                                     Spacer(modifier = Modifier.height(24.dp))
-                                    LpmPrimaryButton("Next", onClick = {
+                                    LpmPrimaryButton(submitLabel ?: "Next", onClick = {
                                         answers[MeasurementStep.Pain] = pain.toInt().toString()
                                         advanceOrClose()
                                     })
@@ -941,22 +1349,36 @@ private fun FocusModeForm(followUp: FollowUpUi, periodName: String, effectiveDat
                                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
                                     )
                                     Spacer(modifier = Modifier.height(24.dp))
-                                    LpmPrimaryButton("Next", onClick = {
+                                    LpmPrimaryButton(submitLabel ?: "Next", onClick = {
                                         answers[MeasurementStep.Temperature] = temp
                                         advanceOrClose()
                                     })
                                 }
                             }
                             MeasurementStep.Photo -> {
+                                var photoSaved by remember { mutableStateOf(answers[MeasurementStep.Photo]) }
                                 Column {
-                                    Box(modifier = Modifier.fillMaxWidth().height(200.dp).background(Gray200, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
-                                        Text("Camera Preview", color = Gray400)
+                                    if (photoSaved == null) {
+                                        MeasurementPhotoCapture(
+                                            onPhotoCaptured = { fileName ->
+                                                photoSaved = fileName
+                                                answers[MeasurementStep.Photo] = fileName
+                                            },
+                                            previewHeight = 200
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(120.dp)
+                                                .background(Color(0xFFE8F5E9), RoundedCornerShape(8.dp)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text("Photo saved", color = Color(0xFF2E7D32), fontWeight = FontWeight.SemiBold)
+                                        }
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        LpmPrimaryButton(submitLabel ?: "Finish", onClick = { advanceOrClose() })
                                     }
-                                    Spacer(modifier = Modifier.height(24.dp))
-                                    LpmPrimaryButton("Finish", onClick = {
-                                        answers[MeasurementStep.Photo] = "Captured"
-                                        advanceOrClose()
-                                    })
                                 }
                             }
                         }
