@@ -1,5 +1,6 @@
 package com.preappointment1.app
 
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -44,6 +45,8 @@ import com.preappointment1.app.data.AuthHelper
 import com.preappointment1.app.data.SessionManager
 import com.preappointment1.app.data.api.ApiClient
 import com.preappointment1.app.billing.BillingManager
+import com.preappointment1.app.notifications.NotificationDeepLink
+import com.preappointment1.app.notifications.NotificationIntents
 import com.preappointment1.app.notifications.NotificationHelper
 import com.preappointment1.app.notifications.ScheduleReminderManager
 import com.preappointment1.app.ui.screens.*
@@ -52,17 +55,23 @@ import com.preappointment1.app.ui.theme.Gray200
 import com.preappointment1.app.ui.theme.Gray400
 import com.preappointment1.app.ui.theme.White
 import com.preappointment1.app.ui.theme.LivingPatientMemoryTheme
+import com.preappointment1.app.data.model.TimelineEventResponse
+import com.preappointment1.app.schedule.ScheduleLogic
+import java.time.LocalTime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private val deepLinkState = mutableStateOf<NotificationDeepLink?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         SessionManager.init(this)
         BillingManager.initialize(this)
         NotificationHelper.createNotificationChannel(this)
+        deepLinkState.value = NotificationIntents.from(intent)
 
         CoroutineScope(Dispatchers.IO).launch {
             val ok = AuthHelper.ensureAuthenticated()
@@ -70,44 +79,108 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
+            val deepLink by deepLinkState
             LivingPatientMemoryTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    AppRoot()
+                    AppRoot(
+                        deepLink = deepLink,
+                        onDeepLinkHandled = { deepLinkState.value = null }
+                    )
                 }
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        deepLinkState.value = NotificationIntents.from(intent)
+    }
 }
 
 private enum class AppScreen {
-    Splash, Welcome, Home, NewFollowUp, Journey, Routine, Notifications, Profile, Report
+    Splash, Welcome, Home, NewFollowUp, Journey, Notifications, Profile, Report
 }
 
 @Composable
-private fun AppRoot() {
+private fun AppRoot(
+    deepLink: NotificationDeepLink? = null,
+    onDeepLinkHandled: () -> Unit = {}
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var screen by remember { mutableStateOf(AppScreen.Splash) }
     var refreshKey by remember { mutableIntStateOf(0) }
     var selectedFollowUp by remember { mutableStateOf<FollowUpUi?>(null) }
     var hasSeenWelcome by remember { mutableStateOf(SessionManager.getToken() != null) }
     var pendingFollowUpId by remember { mutableStateOf<String?>(null) }
+    var openMeasurementFormOnLaunch by remember { mutableStateOf(false) }
+    var highlightCheckIn by remember { mutableStateOf(false) }
+    var notificationScheduleKey by remember { mutableStateOf<String?>(null) }
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
     var followUps by remember { mutableStateOf<List<FollowUpUi>>(emptyList()) }
+    var timelineEventsBySubId by remember { mutableStateOf<Map<String, List<TimelineEventResponse>>>(emptyMap()) }
+    var followUpsLoading by remember { mutableStateOf(false) }
+    var followUpsLoadComplete by remember { mutableStateOf(false) }
+    val now = remember { mutableStateOf(LocalTime.now()) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000)
+            now.value = LocalTime.now()
+        }
+    }
+
+    val hasPendingCheckIn = remember(followUps, timelineEventsBySubId, now.value) {
+        followUps.any { followUp ->
+            followUp.daysRemaining > 0 && followUp.schedule?.let { schedule ->
+                ScheduleLogic.hasDueCheckInNow(
+                    schedule,
+                    timelineEventsBySubId[followUp.id] ?: emptyList(),
+                    now.value
+                )
+            } == true
+        }
+    }
+
+    LaunchedEffect(deepLink, followUps, followUpsLoadComplete, hasSeenWelcome) {
+        val link = deepLink ?: return@LaunchedEffect
+        if (!hasSeenWelcome || !followUpsLoadComplete) return@LaunchedEffect
+        val found = followUps.find { it.id == link.subscriptionId }
+        if (found == null) {
+            onDeepLinkHandled()
+            screen = AppScreen.Home
+            return@LaunchedEffect
+        }
+        selectedFollowUp = found
+        notificationScheduleKey = link.scheduleKey
+        openMeasurementFormOnLaunch = link.openMeasurementForm
+        highlightCheckIn = true
+        screen = AppScreen.Journey
+        onDeepLinkHandled()
+    }
 
     LaunchedEffect(refreshKey) {
         if (!hasSeenWelcome) return@LaunchedEffect
+        followUpsLoading = true
+        followUpsLoadComplete = false
         try {
             val subscriptions = ApiClient.apiService.getSubscriptions()
             val agents = ApiClient.apiService.getAgents().associateBy { it.id }
             followUps = subscriptions.map { it.toFollowUpUi(agents) }
+            val active = followUps.filter { it.daysRemaining > 0 && it.schedule != null }
+            timelineEventsBySubId = active.associate { followUp ->
+                followUp.id to runCatching {
+                    ApiClient.apiService.getTimeline(followUp.id)
+                }.getOrElse { emptyList() }
+            }
             ScheduleReminderManager.rescheduleActiveFollowUps(context, followUps)
-            
+
             if (pendingFollowUpId != null) {
                 val found = followUps.find { it.id == pendingFollowUpId }
                 if (found != null) {
@@ -120,10 +193,18 @@ private fun AppRoot() {
             }
         } catch (e: Exception) {
             e.printStackTrace()
+            if (deepLink != null) {
+                onDeepLinkHandled()
+                screen = AppScreen.Home
+            }
+        } finally {
+            followUpsLoading = false
+            followUpsLoadComplete = true
         }
     }
 
     LaunchedEffect(Unit) {
+        if (deepLink != null) return@LaunchedEffect
         delay(1500)
         screen = if (hasSeenWelcome) AppScreen.Home else AppScreen.Welcome
     }
@@ -250,13 +331,14 @@ private fun AppRoot() {
                     MainTopBar(
                         title = stringResource(R.string.app_name),
                         onOpenDrawer = { scope.launch { drawerState.open() } },
-                        hasPendingTasks = false, // could be dynamic later
+                        hasPendingTasks = hasPendingCheckIn,
                         onOpenNotifications = { screen = AppScreen.Notifications }
                     )
                 }
             ) { padding ->
                 DashboardScreen(
-                    refreshKey = refreshKey,
+                    followUps = followUps,
+                    isLoading = followUpsLoading,
                     onNewFollowUp = { screen = AppScreen.NewFollowUp },
                     onOpenJourney = { followUp ->
                         selectedFollowUp = followUp
@@ -302,32 +384,22 @@ private fun AppRoot() {
                         followUp = followUp,
                         onBack = {
                             refreshKey++
+                            openMeasurementFormOnLaunch = false
+                            highlightCheckIn = false
+                            notificationScheduleKey = null
                             screen = AppScreen.Home
                         },
                         onOpenDrawer = { scope.launch { drawerState.open() } },
                         onOpenReport = { screen = AppScreen.Report },
                         onFollowUpUpdated = { updated ->
                             selectedFollowUp = updated
-                            // Also update the list
                             followUps = followUps.map { if (it.id == updated.id) updated else it }
-                        }
-                    )
-                }
-            }
-
-            AppScreen.Routine -> {
-                val followUp = selectedFollowUp
-                if (followUp == null) {
-                    screen = AppScreen.Home
-                } else {
-                    DailyRoutineScreen(
-                        followUpTitle = followUp.title,
-                        rules = followUp.rules,
-                        onBack = { screen = AppScreen.Journey },
-                        onComplete = {
-                            refreshKey++
-                            screen = AppScreen.Home
-                        }
+                        },
+                        openMeasurementFormOnLaunch = openMeasurementFormOnLaunch,
+                        onMeasurementFormLaunchHandled = { openMeasurementFormOnLaunch = false },
+                        highlightPendingCheckIn = highlightCheckIn,
+                        onHighlightCheckInHandled = { highlightCheckIn = false },
+                        notificationScheduleKey = notificationScheduleKey
                     )
                 }
             }

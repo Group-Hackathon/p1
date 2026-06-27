@@ -76,5 +76,7 @@
     <string name="measurement_type_temperature">Temperature</string>
     <string name="measurement_type_photo">Photo</string>
     <string name="action_save">Save</string>
+    <string name="notification_checkin_pending">Reminder — check-in waiting</string>
+    <string name="notification_checkin_already_done">This check-in is already recorded for today.</string>
     
 </resources>

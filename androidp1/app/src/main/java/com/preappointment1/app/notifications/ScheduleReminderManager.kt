@@ -7,6 +7,7 @@ import java.time.LocalTime
 object ScheduleReminderManager {
     private const val PREFS = "schedule_reminders"
     private const val KEY_ACTIVE_SUB = "active_subscription_id"
+    private const val KEY_SCHEDULED_SUBS = "scheduled_subscription_ids"
     private const val MAX_SLOTS_PER_SUB = 12
 
     fun requestCode(subscriptionId: String, slotIndex: Int): Int {
@@ -21,7 +22,62 @@ object ScheduleReminderManager {
     ) {
         cancelForFollowUp(context, subscriptionId)
         NotificationHelper.createNotificationChannel(context)
+        scheduleAlarms(context, subscriptionId, title, schedule)
+        registerScheduledFollowUp(context, subscriptionId)
+    }
 
+    fun cancelForFollowUp(context: Context, subscriptionId: String) {
+        for (index in 0 until MAX_SLOTS_PER_SUB) {
+            NotificationHelper.cancelReminder(context, requestCode(subscriptionId, index))
+        }
+        unregisterScheduledFollowUp(context, subscriptionId)
+    }
+
+    fun getActiveSubscriptionId(context: Context): String? {
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_ACTIVE_SUB, null)
+    }
+
+    fun rescheduleActiveFollowUps(context: Context, followUps: List<FollowUpUi>) {
+        val active = followUps.filter { it.daysRemaining > 0 && !it.schedule.isNullOrEmpty() }
+        val activeIds = active.map { it.id }.toSet()
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val previouslyScheduled = prefs.getStringSet(KEY_SCHEDULED_SUBS, emptySet()) ?: emptySet()
+
+        previouslyScheduled.filter { it !in activeIds }.forEach { cancelForFollowUp(context, it) }
+
+        active.forEach { followUp ->
+            scheduleForFollowUp(context, followUp.id, followUp.title, followUp.schedule!!)
+        }
+
+        prefs.edit()
+            .putStringSet(KEY_SCHEDULED_SUBS, activeIds)
+            .putString(KEY_ACTIVE_SUB, active.maxByOrNull { it.startsAt }?.id)
+            .apply()
+    }
+
+    fun remindersFromSchedule(schedule: Map<String, List<String>>): List<ScheduleReminderUi> {
+        return schedule.mapNotNull { (timeKey, actions) ->
+            runCatching { LocalTime.parse(timeKey) }.getOrNull()?.let { time ->
+                ScheduleReminderUi(
+                    timeKey = timeKey,
+                    displayTime = formatDisplayTime(time),
+                    measures = formatActions(actions)
+                )
+            }
+        }.sortedBy { it.timeKey }
+    }
+
+    fun firstScheduleKey(schedule: Map<String, List<String>>): String? {
+        return remindersFromSchedule(schedule).firstOrNull()?.timeKey
+    }
+
+    private fun scheduleAlarms(
+        context: Context,
+        subscriptionId: String,
+        title: String,
+        schedule: Map<String, List<String>>
+    ) {
         val slots = schedule.mapNotNull { (timeKey, actions) ->
             runCatching {
                 val time = LocalTime.parse(timeKey)
@@ -50,50 +106,28 @@ object ScheduleReminderManager {
                 minute = minute,
                 requestCode = requestCode(subscriptionId, index),
                 title = notifTitle,
-                message = message
+                message = message,
+                subscriptionId = subscriptionId,
+                scheduleKey = timeKey
             )
         }
+    }
 
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+    private fun registerScheduledFollowUp(context: Context, subscriptionId: String) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val ids = prefs.getStringSet(KEY_SCHEDULED_SUBS, emptySet())?.toMutableSet() ?: mutableSetOf()
+        ids.add(subscriptionId)
+        prefs.edit()
+            .putStringSet(KEY_SCHEDULED_SUBS, ids)
             .putString(KEY_ACTIVE_SUB, subscriptionId)
             .apply()
     }
 
-    fun cancelForFollowUp(context: Context, subscriptionId: String) {
-        for (index in 0 until MAX_SLOTS_PER_SUB) {
-            NotificationHelper.cancelReminder(context, requestCode(subscriptionId, index))
-        }
-    }
-
-    fun rescheduleActiveFollowUps(context: Context, followUps: List<FollowUpUi>) {
-        val active = followUps
-            .filter { it.daysRemaining > 0 && !it.schedule.isNullOrEmpty() }
-            .maxByOrNull { it.startsAt }
-
+    private fun unregisterScheduledFollowUp(context: Context, subscriptionId: String) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val previousId = prefs.getString(KEY_ACTIVE_SUB, null)
-        if (previousId != null && previousId != active?.id) {
-            cancelForFollowUp(context, previousId)
-        }
-
-        if (active != null && active.schedule != null) {
-            scheduleForFollowUp(context, active.id, active.title, active.schedule)
-        } else if (previousId != null) {
-            cancelForFollowUp(context, previousId)
-            prefs.edit().remove(KEY_ACTIVE_SUB).apply()
-        }
-    }
-
-    fun remindersFromSchedule(schedule: Map<String, List<String>>): List<ScheduleReminderUi> {
-        return schedule.mapNotNull { (timeKey, actions) ->
-            runCatching { LocalTime.parse(timeKey) }.getOrNull()?.let { time ->
-                ScheduleReminderUi(
-                    timeKey = timeKey,
-                    displayTime = formatDisplayTime(time),
-                    measures = formatActions(actions)
-                )
-            }
-        }.sortedBy { it.timeKey }
+        val ids = prefs.getStringSet(KEY_SCHEDULED_SUBS, emptySet())?.toMutableSet() ?: mutableSetOf()
+        ids.remove(subscriptionId)
+        prefs.edit().putStringSet(KEY_SCHEDULED_SUBS, ids).apply()
     }
 
     private fun formatActions(actions: List<String>): String {

@@ -56,20 +56,7 @@ private fun isSlotCompletedToday(
     events: List<TimelineEventResponse>,
     slotKey: String,
     isFirstSlot: Boolean
-): Boolean {
-    val today = LocalDate.now()
-    return events.any { event ->
-        if (event.type != "user") return@any false
-        if (event.date_label.contains("Question") || event.date_label.contains("Retroactive")) return@any false
-        val eventDate = runCatching {
-            Instant.parse(event.effective_at ?: event.created_at)
-                .atZone(ZoneId.systemDefault()).toLocalDate()
-        }.getOrNull() ?: return@any false
-        if (eventDate != today) return@any false
-        event.date_label == slotKey ||
-            (isFirstSlot && event.date_label.equals(ScheduleLogic.INITIAL_LABEL, ignoreCase = true))
-    }
-}
+): Boolean = ScheduleLogic.isSlotCompletedToday(events, slotKey, isFirstSlot)
 
 private fun measurementStepsFromSchedule(schedule: Map<String, List<String>>): List<MeasurementStep> {
     val types = schedule.values.flatten().map { it.lowercase() }.toSet()
@@ -101,6 +88,11 @@ fun JourneyScreen(
     onOpenDrawer: () -> Unit,
     onOpenReport: (() -> Unit)? = null,
     onFollowUpUpdated: ((FollowUpUi) -> Unit)? = null,
+    openMeasurementFormOnLaunch: Boolean = false,
+    onMeasurementFormLaunchHandled: () -> Unit = {},
+    highlightPendingCheckIn: Boolean = false,
+    onHighlightCheckInHandled: () -> Unit = {},
+    notificationScheduleKey: String? = null,
     modifier: Modifier = Modifier
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -109,6 +101,7 @@ fun JourneyScreen(
     var formEffectiveDate by remember { mutableStateOf<LocalDate?>(null) }
     var formLabelOverride by remember { mutableStateOf<String?>(null) }
     var formStepsOverride by remember { mutableStateOf<List<MeasurementStep>?>(null) }
+    var formScheduleKeyOverride by remember { mutableStateOf<String?>(null) }
     var showNoteSheet by remember { mutableStateOf(false) }
     var showExtraPicker by remember { mutableStateOf(false) }
 
@@ -172,6 +165,42 @@ fun JourneyScreen(
     val nextWindowTime = nextSlot?.time
     val nextWindowName = nextSlot?.timeKey?.let { stringResource(R.string.check_in_at, it) }
         ?: stringResource(R.string.next_check_in)
+
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(openMeasurementFormOnLaunch, isLoading, showMeasurementButton, showStarterCheckIn, notificationScheduleKey) {
+        if (!openMeasurementFormOnLaunch || isLoading) return@LaunchedEffect
+
+        val notifiedKey = notificationScheduleKey?.takeIf { schedule.containsKey(it) }
+        val openFromNotification = notifiedKey != null &&
+            ScheduleLogic.isNotificationSlotActionable(schedule, events, notifiedKey, now)
+
+        when {
+            openFromNotification -> {
+                formEffectiveDate = null
+                formLabelOverride = null
+                formStepsOverride = null
+                formScheduleKeyOverride = notifiedKey
+                isFormMode = true
+                onHighlightCheckInHandled()
+            }
+            showMeasurementButton -> {
+                formEffectiveDate = null
+                formLabelOverride = if (showStarterCheckIn) measurementContext.formLabelOverride else null
+                formStepsOverride = if (showStarterCheckIn) measurementContext.formStepsOverride else null
+                formScheduleKeyOverride = null
+                isFormMode = true
+                onHighlightCheckInHandled()
+            }
+            else -> {
+                snackbarHostState.showSnackbar(
+                    message = appContext.getString(R.string.notification_checkin_already_done)
+                )
+                onHighlightCheckInHandled()
+            }
+        }
+        onMeasurementFormLaunchHandled()
+    }
 
     val refreshTimeline: suspend () -> Unit = {
         val remoteEvents = ApiClient.apiService.getTimeline(currentFollowUp.id)
@@ -304,6 +333,7 @@ fun JourneyScreen(
 
     Box(modifier = modifier.fillMaxSize().background(White)) {
         Scaffold(
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 TopAppBar(
                     title = { Text(currentFollowUp.title, fontWeight = FontWeight.Bold, fontSize = 22.sp, letterSpacing = (-1).sp) },
@@ -444,6 +474,7 @@ fun JourneyScreen(
                     nextWindowTime = nextWindowTime,
                     showMeasurementButton = showMeasurementButton,
                     showStarterCheckIn = showStarterCheckIn,
+                    highlightPendingCheckIn = highlightPendingCheckIn && showMeasurementButton,
                     previewActionsOverride = if (showStarterCheckIn) {
                         ScheduleLogic.starterActions(schedule, now, null, nextSlot)
                     } else null,
@@ -451,6 +482,7 @@ fun JourneyScreen(
                         formEffectiveDate = null
                         formLabelOverride = if (showStarterCheckIn) measurementContext.formLabelOverride else null
                         formStepsOverride = if (showStarterCheckIn) measurementContext.formStepsOverride else null
+                        onHighlightCheckInHandled()
                         isFormMode = true
                     },
                     onAddNote = { showNoteSheet = true },
@@ -499,7 +531,7 @@ fun JourneyScreen(
             ) {
                 FocusModeForm(
                     followUp = currentFollowUp,
-                    scheduleKey = measurementContext.formScheduleKey,
+                    scheduleKey = formScheduleKeyOverride ?: measurementContext.formScheduleKey,
                     effectiveDate = formEffectiveDate,
                     labelOverride = formLabelOverride,
                     stepsOverride = formStepsOverride,
@@ -507,11 +539,13 @@ fun JourneyScreen(
                         isFormMode = false
                         formLabelOverride = null
                         formStepsOverride = null
+                        formScheduleKeyOverride = null
                     },
                     onSubmitted = {
                         isFormMode = false
                         formLabelOverride = null
                         formStepsOverride = null
+                        formScheduleKeyOverride = null
                         coroutineScope.launch {
                             try {
                                 refreshTimeline()
@@ -852,6 +886,7 @@ private fun BottomMeasurementBar(
     nextWindowTime: LocalTime?,
     showMeasurementButton: Boolean,
     showStarterCheckIn: Boolean = false,
+    highlightPendingCheckIn: Boolean = false,
     previewActionsOverride: List<String>? = null,
     onStartRoutine: () -> Unit,
     onAddNote: () -> Unit,
@@ -882,10 +917,27 @@ private fun BottomMeasurementBar(
 
     Surface(
         color = White,
-        shadowElevation = 16.dp,
-        modifier = Modifier.fillMaxWidth()
+        shadowElevation = if (highlightPendingCheckIn) 20.dp else 16.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (highlightPendingCheckIn) {
+                    Modifier.border(2.dp, Black, RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                } else {
+                    Modifier
+                }
+            )
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            if (highlightPendingCheckIn) {
+                Text(
+                    text = stringResource(R.string.notification_checkin_pending),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Black,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
             when {
                 showMeasurementButton && showStarterCheckIn -> {
                     Text(

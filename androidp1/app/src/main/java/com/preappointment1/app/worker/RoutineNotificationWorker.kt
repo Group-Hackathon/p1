@@ -9,7 +9,8 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.preappointment1.app.MainActivity
+import com.preappointment1.app.notifications.NotificationIntents
+import com.preappointment1.app.notifications.ScheduleReminderManager
 
 class RoutineNotificationWorker(
     private val context: Context,
@@ -40,15 +41,23 @@ class RoutineNotificationWorker(
             notificationManager.createNotificationChannel(channel)
         }
 
-        // Intent to open the app when clicking the notification
-        val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            // We could add extras here to deep link directly to the DailyRoutineScreen
+        val activeId = ScheduleReminderManager.getActiveSubscriptionId(context)
+        val intent = if (activeId != null) {
+            NotificationIntents.toMainActivityIntent(
+                context = context,
+                subscriptionId = activeId,
+                scheduleKey = null,
+                openMeasurementForm = true
+            )
+        } else {
+            android.content.Intent(context, com.preappointment1.app.MainActivity::class.java).apply {
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
         }
         val pendingIntent = PendingIntent.getActivity(
-            context, 
-            0, 
-            intent, 
+            context,
+            activeId?.hashCode() ?: 0,
+            intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 

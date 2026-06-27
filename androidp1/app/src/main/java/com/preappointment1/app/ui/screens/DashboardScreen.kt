@@ -13,14 +13,12 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.preappointment1.app.data.AuthHelper
 import com.preappointment1.app.data.api.ApiClient
 import com.preappointment1.app.data.model.AgentResponse
 import com.preappointment1.app.data.model.SubscriptionResponse
@@ -47,37 +45,14 @@ data class FollowUpUi(
 
 @Composable
 fun DashboardScreen(
-    refreshKey: Int,
+    followUps: List<FollowUpUi>,
+    isLoading: Boolean,
     onNewFollowUp: () -> Unit,
     onOpenJourney: (FollowUpUi) -> Unit,
     onOpenNotifications: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var followUps by remember { mutableStateOf<List<FollowUpUi>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
     var showComingSoon by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-
-    LaunchedEffect(refreshKey) {
-        isLoading = true
-        errorMessage = null
-        try {
-            if (!AuthHelper.ensureAuthenticated()) {
-                errorMessage = "Unable to connect. Check your network."
-                followUps = emptyList()
-                return@LaunchedEffect
-            }
-            val subscriptions = ApiClient.apiService.getSubscriptions()
-            val agents = ApiClient.apiService.getAgents().associateBy { it.id }
-            followUps = subscriptions.map { it.toFollowUpUi(agents) }
-        } catch (e: Exception) {
-            errorMessage = "Unable to load your follow-ups."
-            followUps = emptyList()
-        } finally {
-            isLoading = false
-        }
-    }
 
     if (showComingSoon) {
         ComingSoonDialog(onDismiss = { showComingSoon = false })

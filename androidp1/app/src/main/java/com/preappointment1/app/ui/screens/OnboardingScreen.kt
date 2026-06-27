@@ -70,9 +70,17 @@ fun OnboardingScreen(
     var generatedTitle by remember { mutableStateOf("") }
     var generatedPlan by remember { mutableStateOf("") }
     var generatedSchedule by remember { mutableStateOf<Map<String, List<String>>?>(null) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(errorMessage) {
+        val message = errorMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        errorMessage = null
+    }
     
     val purchaseSuccess by BillingManager.purchaseSuccessFlow.collectAsState()
 
@@ -117,6 +125,7 @@ fun OnboardingScreen(
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
+                    errorMessage = "Unable to start tracking. Check your connection and try again."
                 } finally {
                     isStarting = false
                 }
@@ -136,6 +145,7 @@ fun OnboardingScreen(
             ) 
         },
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         modifier = modifier
     ) { padding ->
         Column(
@@ -209,6 +219,7 @@ fun OnboardingScreen(
                                     step = 4 // Premium Preview
                                 } catch (e: Exception) {
                                     e.printStackTrace()
+                                    errorMessage = "Plan generation failed. Try again or use manual setup."
                                     step = 5 // Offline / Error Fallback
                                 } finally {
                                     isAnalyzing = false
@@ -246,7 +257,14 @@ fun OnboardingScreen(
                                         "symptoms" to symptomText,
                                         "next_appointment" to appointmentDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
                                         "plan" to "Manual custom tracking",
-                                        "schedule" to customSchedule
+                                        "schedule" to customSchedule,
+                                        "rules" to mapOf(
+                                            "temperature" to ruleTemperature,
+                                            "pain" to rulePain,
+                                            "photos" to rulePhotos,
+                                            "smartwatch" to ruleSmartwatch,
+                                            "blood_pressure" to ruleBp
+                                        )
                                     )
 
                                     val response = ApiClient.apiService.createSubscription(
@@ -263,6 +281,7 @@ fun OnboardingScreen(
                                     )
                                 } catch (e: Exception) {
                                     e.printStackTrace()
+                                    errorMessage = "Unable to start tracking. Check your connection and try again."
                                 } finally {
                                     isStarting = false
                                 }

@@ -1,6 +1,10 @@
 package com.preappointment1.app.schedule
 
+import com.preappointment1.app.data.model.TimelineEventResponse
+import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 enum class MeasurementStep {
@@ -177,5 +181,55 @@ object ScheduleLogic {
         val hour = (rounded / 60) % 24
         val minute = rounded % 60
         return LocalTime.of(hour, minute)
+    }
+
+    fun isSlotCompletedToday(
+        events: List<TimelineEventResponse>,
+        slotKey: String,
+        isFirstSlot: Boolean
+    ): Boolean {
+        val today = LocalDate.now()
+        return events.any { event ->
+            if (event.type != "user") return@any false
+            if (event.date_label.contains("Question") || event.date_label.contains("Retroactive")) return@any false
+            val eventDate = runCatching {
+                Instant.parse(event.effective_at ?: event.created_at)
+                    .atZone(ZoneId.systemDefault()).toLocalDate()
+            }.getOrNull() ?: return@any false
+            if (eventDate != today) return@any false
+            event.date_label == slotKey ||
+                (isFirstSlot && event.date_label.equals(INITIAL_LABEL, ignoreCase = true))
+        }
+    }
+
+    fun hasDueCheckInNow(
+        schedule: Map<String, List<String>>,
+        events: List<TimelineEventResponse>,
+        now: LocalTime
+    ): Boolean {
+        val slots = parseScheduleSlots(schedule)
+        if (slots.isEmpty()) return false
+        val isInitial = events.none {
+            it.type == "user" && !it.date_label.contains("Question")
+        }
+        val isSlotPending: (ScheduleSlot) -> Boolean = { slot ->
+            !isSlotCompletedToday(events, slot.timeKey, slot == slots.firstOrNull())
+        }
+        val context = resolveMeasurementContext(schedule, slots, now, isInitial, isSlotPending)
+        return context.dueSlot != null || context.showStarterCheckIn
+    }
+
+    fun isNotificationSlotActionable(
+        schedule: Map<String, List<String>>,
+        events: List<TimelineEventResponse>,
+        scheduleKey: String,
+        now: LocalTime
+    ): Boolean {
+        if (!schedule.containsKey(scheduleKey)) return false
+        val slots = parseScheduleSlots(schedule)
+        val slot = slots.find { it.timeKey == scheduleKey } ?: return false
+        val isInitial = events.none { it.type == "user" && !it.date_label.contains("Question") }
+        if (isSlotCompletedToday(events, slot.timeKey, slot == slots.firstOrNull())) return false
+        return isInMeasurementWindow(now, slot.time) || isInitial
     }
 }

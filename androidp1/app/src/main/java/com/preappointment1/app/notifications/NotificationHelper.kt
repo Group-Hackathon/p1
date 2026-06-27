@@ -33,12 +33,17 @@ object NotificationHelper {
         minute: Int,
         requestCode: Int,
         title: String,
-        message: String
+        message: String,
+        subscriptionId: String,
+        scheduleKey: String
     ) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             putExtra("title", title)
             putExtra("message", message)
+            putExtra(NotificationIntents.EXTRA_SUBSCRIPTION_ID, subscriptionId)
+            putExtra(NotificationIntents.EXTRA_SCHEDULE_KEY, scheduleKey)
+            putExtra(NotificationIntents.EXTRA_OPEN_MEASUREMENT_FORM, true)
         }
 
         val pendingIntent = PendingIntent.getBroadcast(
@@ -55,12 +60,10 @@ object NotificationHelper {
             set(Calendar.SECOND, 0)
         }
 
-        // If time is in the past, schedule for tomorrow
         if (calendar.timeInMillis <= System.currentTimeMillis()) {
             calendar.add(Calendar.DAY_OF_YEAR, 1)
         }
 
-        // Schedule repeating alarm daily
         alarmManager.setRepeating(
             AlarmManager.RTC_WAKEUP,
             calendar.timeInMillis,
